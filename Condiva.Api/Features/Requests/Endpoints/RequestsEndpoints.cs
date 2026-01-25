@@ -1,20 +1,19 @@
-using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
-using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Offers.Models;
+using Condiva.Api.Features.Requests.Data;
+using Condiva.Api.Features.Requests.Dtos;
+using Condiva.Api.Features.Requests.Models;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
-using RequestModel = Condiva.Api.Features.Requests.Models.Request;
-using RequestStatus = Condiva.Api.Features.Requests.Models.RequestStatus;
 
 namespace Condiva.Api.Features.Requests.Endpoints;
 
 public static class RequestsEndpoints
 {
-    private const int MaxDailyRequestsPerUser = 3;
-    private static readonly TimeSpan DuplicateWindow = TimeSpan.FromHours(8);
-
     public static IEndpointRouteBuilder MapRequestsEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -22,13 +21,44 @@ public static class RequestsEndpoints
         group.RequireAuthorization();
         group.WithTags("Requests");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Requests.ToListAsync());
-
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/", async (
+            string? communityId,
+            ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var request = await dbContext.Requests.FindAsync(id);
-            return request is null ? ApiErrors.NotFound("Request") : Results.Ok(request);
+            if (string.IsNullOrWhiteSpace(communityId))
+            {
+                return ApiErrors.Required(nameof(communityId));
+            }
+
+            var result = await repository.GetAllAsync(communityId, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Request, RequestListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
+
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var result = await repository.GetByIdAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapGet("/{id}/offers", async (
@@ -36,51 +66,23 @@ public static class RequestsEndpoints
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.GetOffersAsync(id, page, pageSize, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
+                return result.Error!;
             }
 
-            var request = await dbContext.Requests.FindAsync(id);
-            if (request is null)
-            {
-                return ApiErrors.NotFound("Request");
-            }
-
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == request.CommunityId && membership.UserId == actorUserId);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-
-            var pageNumber = page.GetValueOrDefault(1);
-            var size = pageSize.GetValueOrDefault(20);
-            if (pageNumber <= 0 || size <= 0 || size > 100)
-            {
-                return ApiErrors.Invalid("Invalid pagination parameters.");
-            }
-
-            var query = dbContext.Offers
-                .Where(offer => offer.RequestId == id);
-
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderByDescending(offer => offer.CreatedAt)
-                .Skip((pageNumber - 1) * size)
-                .Take(size)
-                .ToListAsync();
-
-            return Results.Ok(new
-            {
-                items,
-                page = pageNumber,
-                pageSize = size,
-                total
-            });
+            var mapped = mapper.MapList<Offer, OfferListItemDto>(result.Data!.Items).ToList();
+            var payload = new PagedResponseDto<OfferListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
+            return Results.Ok(payload);
         });
 
         group.MapGet("/me", async (
@@ -89,275 +91,115 @@ public static class RequestsEndpoints
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.GetMineAsync(communityId, status, page, pageSize, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
+                return result.Error!;
             }
 
-            var pageNumber = page.GetValueOrDefault(1);
-            var size = pageSize.GetValueOrDefault(20);
-            if (pageNumber <= 0 || size <= 0 || size > 100)
-            {
-                return ApiErrors.Invalid("Invalid pagination parameters.");
-            }
-
-            var query = dbContext.Requests.AsQueryable()
-                .Where(request => request.RequesterUserId == actorUserId);
-
-            if (!string.IsNullOrWhiteSpace(communityId))
-            {
-                query = query.Where(request => request.CommunityId == communityId);
-            }
-
-            if (!string.IsNullOrWhiteSpace(status))
-            {
-                if (!Enum.TryParse<RequestStatus>(status, true, out var requestStatus))
-                {
-                    return ApiErrors.Invalid("Invalid status filter.");
-                }
-                query = query.Where(request => request.Status == requestStatus);
-            }
-
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderByDescending(request => request.CreatedAt)
-                .Skip((pageNumber - 1) * size)
-                .Take(size)
-                .ToListAsync();
-
-            return Results.Ok(new
-            {
-                items,
-                page = pageNumber,
-                pageSize = size,
-                total
-            });
+            var mapped = mapper.MapList<Request, RequestListItemDto>(result.Data!.Items).ToList();
+            var payload = new PagedResponseDto<RequestListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/", async (
-            RequestModel body,
+            CreateRequestRequestDto body,
             ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
+            if (!Enum.TryParse<RequestStatus>(body.Status, true, out var statusValue))
             {
-                return ApiErrors.Required(nameof(body.CommunityId));
+                return ApiErrors.Invalid("Invalid status.");
             }
-            if (string.IsNullOrWhiteSpace(body.RequesterUserId))
-            {
-                return ApiErrors.Required(nameof(body.RequesterUserId));
-            }
-            if (!string.Equals(body.RequesterUserId, actorUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("RequesterUserId must match the current user.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Title))
-            {
-                return ApiErrors.Required(nameof(body.Title));
-            }
-            if (body.Status != Models.RequestStatus.Open)
-            {
-                return ApiErrors.Invalid("Status must be Open on create.");
-            }
-            var dayStart = DateTime.UtcNow.Date;
-            var dailyCount = await dbContext.Requests.CountAsync(request =>
-                request.CommunityId == body.CommunityId
-                && request.RequesterUserId == body.RequesterUserId
-                && request.CreatedAt >= dayStart);
-            if (dailyCount >= MaxDailyRequestsPerUser)
-            {
-                return ApiErrors.Invalid("Daily request limit reached.");
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var requesterExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.RequesterUserId);
-            if (!requesterExists)
-            {
-                return ApiErrors.Invalid("RequesterUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.RequesterUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("RequesterUserId is not a member of the community.");
-            }
-            var normalizedTitle = NormalizeText(body.Title);
-            var normalizedDescription = NormalizeText(body.Description);
-            var duplicateSince = DateTime.UtcNow.Subtract(DuplicateWindow);
-            var hasDuplicate = await dbContext.Requests.AnyAsync(request =>
-                request.CommunityId == body.CommunityId
-                && request.RequesterUserId == body.RequesterUserId
-                && request.CreatedAt >= duplicateSince
-                && NormalizeText(request.Title) == normalizedTitle
-                && NormalizeText(request.Description) == normalizedDescription);
-            if (hasDuplicate)
-            {
-                return ApiErrors.Invalid("Duplicate request detected.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.CreatedAt = DateTime.UtcNow;
 
-            dbContext.Requests.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/requests/{body.Id}", body);
+            var model = new Request
+            {
+                CommunityId = body.CommunityId,
+                RequesterUserId = body.RequesterUserId,
+                Title = body.Title,
+                Description = body.Description,
+                Status = statusValue,
+                NeededFrom = body.NeededFrom,
+                NeededTo = body.NeededTo
+            };
+
+            var result = await repository.CreateAsync(model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            return Results.Created($"/api/requests/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            RequestModel body,
+            UpdateRequestRequestDto body,
             ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            var request = await dbContext.Requests.FindAsync(id);
-            if (request is null)
+            if (!Enum.TryParse<RequestStatus>(body.Status, true, out var statusValue))
             {
-                return ApiErrors.NotFound("Request");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == request.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to update the request.");
-            }
-            if (request.Status != RequestStatus.Open)
-            {
-                return ApiErrors.Invalid("Request cannot be updated unless open.");
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.RequesterUserId))
-            {
-                return ApiErrors.Required(nameof(body.RequesterUserId));
-            }
-            if (!CanManageCommunity(membership)
-                && !string.Equals(body.RequesterUserId, request.RequesterUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("RequesterUserId cannot be changed.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Title))
-            {
-                return ApiErrors.Required(nameof(body.Title));
-            }
-            if (body.Status != RequestStatus.Open)
-            {
-                return ApiErrors.Invalid("Status cannot be changed via update.");
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var requesterExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.RequesterUserId);
-            if (!requesterExists)
-            {
-                return ApiErrors.Invalid("RequesterUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.RequesterUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("RequesterUserId is not a member of the community.");
+                return ApiErrors.Invalid("Invalid status.");
             }
 
-            request.CommunityId = body.CommunityId;
-            request.RequesterUserId = body.RequesterUserId;
-            request.Title = body.Title;
-            request.Description = body.Description;
-            request.Status = body.Status;
-            request.NeededFrom = body.NeededFrom;
-            request.NeededTo = body.NeededTo;
+            var model = new Request
+            {
+                CommunityId = body.CommunityId,
+                RequesterUserId = body.RequesterUserId,
+                Title = body.Title,
+                Description = body.Description,
+                Status = statusValue,
+                NeededFrom = body.NeededFrom,
+                NeededTo = body.NeededTo
+            };
 
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(request);
+            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            IRequestRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.DeleteAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var request = await dbContext.Requests.FindAsync(id);
-            if (request is null)
-            {
-                return ApiErrors.NotFound("Request");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == request.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to delete the request.");
-            }
-            if (request.Status != RequestStatus.Open)
-            {
-                return ApiErrors.Invalid("Request cannot be deleted unless open.");
+                return result.Error!;
             }
 
-            dbContext.Requests.Remove(request);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 
         return endpoints;
-    }
-
-    private static string NormalizeText(string value)
-    {
-        return value.Trim().ToLowerInvariant();
-    }
-
-    private static bool CanManageCommunity(Membership membership)
-    {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
     }
 }

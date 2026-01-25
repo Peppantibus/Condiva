@@ -1,13 +1,13 @@
-using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
-using Condiva.Api.Features.Communities.Models;
-using Condiva.Api.Features.Events.Models;
-using Condiva.Api.Features.Items.Models;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Loans.Models;
+using Condiva.Api.Features.Offers.Data;
+using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Offers.Models;
-using Condiva.Api.Features.Requests.Models;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Offers.Endpoints;
@@ -21,13 +21,38 @@ public static class OffersEndpoints
         group.RequireAuthorization();
         group.WithTags("Offers");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Offers.ToListAsync());
-
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/", async (
+            ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var offer = await dbContext.Offers.FindAsync(id);
-            return offer is null ? ApiErrors.NotFound("Offer") : Results.Ok(offer);
+            var result = await repository.GetAllAsync(user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Offer, OfferListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
+
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var result = await repository.GetByIdAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapGet("/me", async (
@@ -36,553 +61,167 @@ public static class OffersEndpoints
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.GetMineAsync(communityId, status, page, pageSize, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
+                return result.Error!;
             }
 
-            var pageNumber = page.GetValueOrDefault(1);
-            var size = pageSize.GetValueOrDefault(20);
-            if (pageNumber <= 0 || size <= 0 || size > 100)
-            {
-                return ApiErrors.Invalid("Invalid pagination parameters.");
-            }
-
-            var query = dbContext.Offers.AsQueryable()
-                .Where(offer => offer.OffererUserId == actorUserId);
-
-            if (!string.IsNullOrWhiteSpace(communityId))
-            {
-                query = query.Where(offer => offer.CommunityId == communityId);
-            }
-
-            if (!string.IsNullOrWhiteSpace(status))
-            {
-                if (!Enum.TryParse<OfferStatus>(status, true, out var offerStatus))
-                {
-                    return ApiErrors.Invalid("Invalid status filter.");
-                }
-                query = query.Where(offer => offer.Status == offerStatus);
-            }
-
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderByDescending(offer => offer.CreatedAt)
-                .Skip((pageNumber - 1) * size)
-                .Take(size)
-                .ToListAsync();
-
-            return Results.Ok(new
-            {
-                items,
-                page = pageNumber,
-                pageSize = size,
-                total
-            });
+            var mapped = mapper.MapList<Offer, OfferListItemDto>(result.Data!.Items).ToList();
+            var payload = new PagedResponseDto<OfferListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/", async (
-            Offer body,
+            CreateOfferRequestDto body,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
+            if (!Enum.TryParse<OfferStatus>(body.Status, true, out var statusValue))
             {
-                return ApiErrors.Required(nameof(body.CommunityId));
+                return ApiErrors.Invalid("Invalid status.");
             }
-            if (string.IsNullOrWhiteSpace(body.OffererUserId))
-            {
-                return ApiErrors.Required(nameof(body.OffererUserId));
-            }
-            if (!string.Equals(body.OffererUserId, actorUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("OffererUserId must match the current user.");
-            }
-            if (string.IsNullOrWhiteSpace(body.ItemId))
-            {
-                return ApiErrors.Required(nameof(body.ItemId));
-            }
-            if (body.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Status must be Open on create.");
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var offererExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.OffererUserId);
-            if (!offererExists)
-            {
-                return ApiErrors.Invalid("OffererUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.OffererUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("OffererUserId is not a member of the community.");
-            }
-            var item = await dbContext.Items.FindAsync(body.ItemId);
-            if (item is null)
-            {
-                return ApiErrors.Invalid("ItemId does not exist.");
-            }
-            if (item.CommunityId != body.CommunityId)
-            {
-                return ApiErrors.Invalid("ItemId does not belong to the community.");
-            }
-            if (!string.IsNullOrWhiteSpace(body.RequestId))
-            {
-                var request = await dbContext.Requests.FindAsync(body.RequestId);
-                if (request is null)
-                {
-                    return ApiErrors.Invalid("RequestId does not exist.");
-                }
-                if (request.CommunityId != body.CommunityId)
-                {
-                    return ApiErrors.Invalid("RequestId does not belong to the community.");
-                }
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.CreatedAt = DateTime.UtcNow;
 
-            dbContext.Offers.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/offers/{body.Id}", body);
+            var model = new Offer
+            {
+                CommunityId = body.CommunityId,
+                OffererUserId = body.OffererUserId,
+                RequestId = body.RequestId,
+                ItemId = body.ItemId,
+                Message = body.Message,
+                Status = statusValue
+            };
+
+            var result = await repository.CreateAsync(model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
+            return Results.Created($"/api/offers/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            Offer body,
+            UpdateOfferRequestDto body,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            var offer = await dbContext.Offers.FindAsync(id);
-            if (offer is null)
+            if (!Enum.TryParse<OfferStatus>(body.Status, true, out var statusValue))
             {
-                return ApiErrors.NotFound("Offer");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == offer.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to update the offer.");
-            }
-            if (offer.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Offer cannot be updated unless open.");
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.OffererUserId))
-            {
-                return ApiErrors.Required(nameof(body.OffererUserId));
-            }
-            if (!CanManageCommunity(membership)
-                && !string.Equals(body.OffererUserId, offer.OffererUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("OffererUserId cannot be changed.");
-            }
-            if (string.IsNullOrWhiteSpace(body.ItemId))
-            {
-                return ApiErrors.Required(nameof(body.ItemId));
-            }
-            if (body.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Status cannot be changed via update.");
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var offererExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.OffererUserId);
-            if (!offererExists)
-            {
-                return ApiErrors.Invalid("OffererUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.OffererUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("OffererUserId is not a member of the community.");
-            }
-            var item = await dbContext.Items.FindAsync(body.ItemId);
-            if (item is null)
-            {
-                return ApiErrors.Invalid("ItemId does not exist.");
-            }
-            if (item.CommunityId != body.CommunityId)
-            {
-                return ApiErrors.Invalid("ItemId does not belong to the community.");
-            }
-            if (!string.IsNullOrWhiteSpace(body.RequestId))
-            {
-                var request = await dbContext.Requests.FindAsync(body.RequestId);
-                if (request is null)
-                {
-                    return ApiErrors.Invalid("RequestId does not exist.");
-                }
-                if (request.CommunityId != body.CommunityId)
-                {
-                    return ApiErrors.Invalid("RequestId does not belong to the community.");
-                }
+                return ApiErrors.Invalid("Invalid status.");
             }
 
-            offer.CommunityId = body.CommunityId;
-            offer.OffererUserId = body.OffererUserId;
-            offer.RequestId = body.RequestId;
-            offer.ItemId = body.ItemId;
-            offer.Message = body.Message;
-            offer.Status = body.Status;
+            var model = new Offer
+            {
+                CommunityId = body.CommunityId,
+                OffererUserId = body.OffererUserId,
+                RequestId = body.RequestId,
+                ItemId = body.ItemId,
+                Message = body.Message,
+                Status = statusValue
+            };
 
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(offer);
+            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            IOfferRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.DeleteAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var offer = await dbContext.Offers.FindAsync(id);
-            if (offer is null)
-            {
-                return ApiErrors.NotFound("Offer");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == offer.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to delete the offer.");
-            }
-            if (offer.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Offer cannot be deleted unless open.");
+                return result.Error!;
             }
 
-            dbContext.Offers.Remove(offer);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 
         group.MapPost("/{id}/accept", async (
             string id,
-            AcceptOfferRequest body,
+            AcceptOfferRequestDto body,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var model = new AcceptOfferRequest(body.BorrowerUserId);
+
+            var result = await repository.AcceptAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var offer = await dbContext.Offers.FindAsync(id);
-            if (offer is null)
-            {
-                return ApiErrors.NotFound("Offer");
-            }
-            if (offer.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Offer is not open.");
-            }
-            var item = await dbContext.Items.FindAsync(offer.ItemId);
-            if (item is null)
-            {
-                return ApiErrors.Invalid("Offer item does not exist.");
-            }
-            if (item.Status != ItemStatus.Available)
-            {
-                return ApiErrors.Invalid("Item is not available.");
+                return result.Error!;
             }
 
-            var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
-            if (!actorExists)
-            {
-                return ApiErrors.Invalid("ActorUserId does not exist.");
-            }
-
-            string borrowerUserId;
-            Request? request = null;
-            if (!string.IsNullOrWhiteSpace(offer.RequestId))
-            {
-                request = await dbContext.Requests.FindAsync(offer.RequestId);
-                if (request is null)
-                {
-                    return ApiErrors.Invalid("Request does not exist.");
-                }
-                if (request.Status != RequestStatus.Open)
-                {
-                    return ApiErrors.Invalid("Request is not open.");
-                }
-                if (request.RequesterUserId != actorUserId)
-                {
-                    return ApiErrors.Invalid("ActorUserId must be the requester.");
-                }
-                borrowerUserId = request.RequesterUserId;
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(body.BorrowerUserId))
-                {
-                    return ApiErrors.Required(nameof(body.BorrowerUserId));
-                }
-                if (body.BorrowerUserId != actorUserId)
-                {
-                    return ApiErrors.Invalid("ActorUserId must match BorrowerUserId.");
-                }
-                borrowerUserId = body.BorrowerUserId;
-            }
-
-            var lenderMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == offer.CommunityId && membership.UserId == offer.OffererUserId);
-            if (!lenderMember)
-            {
-                return ApiErrors.Invalid("OffererUserId is not a member of the community.");
-            }
-            var borrowerMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == offer.CommunityId && membership.UserId == borrowerUserId);
-            if (!borrowerMember)
-            {
-                return ApiErrors.Invalid("BorrowerUserId is not a member of the community.");
-            }
-
-            await using var transaction = await dbContext.Database.BeginTransactionAsync();
-
-            offer.Status = OfferStatus.Accepted;
-            item.Status = ItemStatus.Reserved;
-
-            var loan = new Loan
-            {
-                Id = Guid.NewGuid().ToString(),
-                CommunityId = offer.CommunityId,
-                ItemId = offer.ItemId,
-                LenderUserId = offer.OffererUserId,
-                BorrowerUserId = borrowerUserId,
-                RequestId = offer.RequestId,
-                OfferId = offer.Id,
-                Status = LoanStatus.Reserved,
-                StartAt = DateTime.UtcNow
-            };
-
-            if (!string.IsNullOrWhiteSpace(offer.RequestId))
-            {
-                if (request is not null)
-                {
-                    request.Status = RequestStatus.Accepted;
-                }
-            }
-
-            var now = DateTime.UtcNow;
-            var events = new List<Event>
-            {
-                CreateEvent(offer.CommunityId, actorUserId, "Offer", offer.Id, "OfferAccepted", now),
-                CreateEvent(offer.CommunityId, actorUserId, "Item", item.Id, "ItemReserved", now),
-                CreateEvent(offer.CommunityId, actorUserId, "Loan", loan.Id, "LoanReserved", now)
-            };
-            if (request is not null)
-            {
-                events.Add(CreateEvent(offer.CommunityId, actorUserId, "Request", request.Id, "RequestAccepted", now));
-            }
-
-            dbContext.Loans.Add(loan);
-            dbContext.Events.AddRange(events);
-            await dbContext.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            return Results.Ok(loan);
+            var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            return Results.Created($"/api/loans/{payload.Id}", payload);
         });
 
         group.MapPost("/{id}/reject", async (
             string id,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.RejectAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
-            if (!actorExists)
-            {
-                return ApiErrors.Invalid("ActorUserId does not exist.");
-            }
-            var offer = await dbContext.Offers.FindAsync(id);
-            if (offer is null)
-            {
-                return ApiErrors.NotFound("Offer");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == offer.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            if (offer.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Offer is not open.");
-            }
-            var canManage = CanManageCommunity(membership);
-            if (!string.IsNullOrWhiteSpace(offer.RequestId))
-            {
-                var request = await dbContext.Requests.FindAsync(offer.RequestId);
-                if (request is null)
-                {
-                    return ApiErrors.Invalid("Request does not exist.");
-                }
-                if (!canManage
-                    && !string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal))
-                {
-                    return ApiErrors.Invalid("User is not allowed to reject the offer.");
-                }
-            }
-            else if (!canManage
-                && !string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("User is not allowed to reject the offer.");
+                return result.Error!;
             }
 
-            offer.Status = OfferStatus.Rejected;
-            dbContext.Events.Add(CreateEvent(
-                offer.CommunityId,
-                actorUserId,
-                "Offer",
-                offer.Id,
-                "OfferRejected",
-                DateTime.UtcNow));
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(new { offer.Id, offer.Status });
+            var payload = mapper.Map<Offer, OfferStatusResponseDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/{id}/withdraw", async (
             string id,
             ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.WithdrawAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
-            if (!actorExists)
-            {
-                return ApiErrors.Invalid("ActorUserId does not exist.");
-            }
-            var offer = await dbContext.Offers.FindAsync(id);
-            if (offer is null)
-            {
-                return ApiErrors.NotFound("Offer");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == offer.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to withdraw the offer.");
-            }
-            if (offer.Status != OfferStatus.Open)
-            {
-                return ApiErrors.Invalid("Offer is not open.");
+                return result.Error!;
             }
 
-            offer.Status = OfferStatus.Withdrawn;
-            dbContext.Events.Add(CreateEvent(
-                offer.CommunityId,
-                actorUserId,
-                "Offer",
-                offer.Id,
-                "OfferWithdrawn",
-                DateTime.UtcNow));
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(new { offer.Id, offer.Status });
+            var payload = mapper.Map<Offer, OfferStatusResponseDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         return endpoints;
     }
-
-    private static bool CanManageCommunity(Membership membership)
-    {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
-    }
-
-    private static Event CreateEvent(
-        string communityId,
-        string actorUserId,
-        string entityType,
-        string entityId,
-        string action,
-        DateTime createdAt)
-    {
-        return new Event
-        {
-            Id = Guid.NewGuid().ToString(),
-            CommunityId = communityId,
-            ActorUserId = actorUserId,
-            EntityType = entityType,
-            EntityId = entityId,
-            Action = action,
-            CreatedAt = createdAt
-        };
-    }
-
-    public sealed record AcceptOfferRequest(string? BorrowerUserId);
 }

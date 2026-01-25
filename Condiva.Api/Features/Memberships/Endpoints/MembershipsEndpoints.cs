@@ -1,8 +1,12 @@
-using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Features.Memberships.Data;
+using Condiva.Api.Features.Memberships.Dtos;
+using Condiva.Api.Features.Memberships.Models;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Memberships.Endpoints;
@@ -16,304 +20,175 @@ public static class MembershipsEndpoints
         group.RequireAuthorization();
         group.WithTags("Memberships");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Memberships.ToListAsync());
+        group.MapGet("/", async (
+            ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var result = await repository.GetAllAsync(user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Membership, MembershipListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
 
         group.MapGet("/me/communities", async (
             ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.GetMyCommunitiesAsync(user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
+                return result.Error!;
             }
 
-            var communities = await dbContext.Memberships
-                .Where(membership => membership.UserId == actorUserId)
-                .Join(
-                    dbContext.Communities,
-                    membership => membership.CommunityId,
-                    community => community.Id,
-                    (_, community) => community)
-                .Distinct()
-                .ToListAsync();
-
-            return Results.Ok(communities);
+            var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
         });
 
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var membership = await dbContext.Memberships.FindAsync(id);
-            return membership is null ? ApiErrors.NotFound("Membership") : Results.Ok(membership);
+            var result = await repository.GetByIdAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/", async (
-            Membership body,
-            string? enterCode,
+            CreateMembershipRequestDto body,
             ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var model = new Membership
             {
-                return ApiErrors.Unauthorized();
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(enterCode))
-            {
-                return ApiErrors.Required(nameof(enterCode));
-            }
-            var userExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
-            if (!userExists)
-            {
-                return ApiErrors.Invalid("UserId does not exist.");
-            }
-            var community = await dbContext.Communities.FindAsync(body.CommunityId);
-            if (community is null)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            if (!string.Equals(community.EnterCode, enterCode, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("EnterCode is invalid.");
-            }
-            if (community.EnterCodeExpiresAt <= DateTime.UtcNow)
-            {
-                return ApiErrors.Invalid("EnterCode has expired.");
-            }
-            var existingMembership = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId && membership.UserId == actorUserId);
-            if (existingMembership)
-            {
-                return ApiErrors.Invalid("User is already a member of the community.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.UserId = actorUserId;
-            body.Role = MembershipRole.Member;
-            body.Status = MembershipStatus.Active;
-            body.InvitedByUserId = null;
-            body.CreatedAt = DateTime.UtcNow;
-            body.JoinedAt = DateTime.UtcNow;
+                CommunityId = body.CommunityId
+            };
 
-            dbContext.Memberships.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/memberships/{body.Id}", body);
+            var result = await repository.CreateAsync(model, body.EnterCode, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            return Results.Created($"/api/memberships/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            Membership body,
+            UpdateMembershipRequestDto body,
             ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
-            {
-                return ApiErrors.Unauthorized();
-            }
-            var membership = await dbContext.Memberships.FindAsync(id);
-            if (membership is null)
-            {
-                return ApiErrors.NotFound("Membership");
-            }
-            var actorMembership = await dbContext.Memberships.FirstOrDefaultAsync(actor =>
-                actor.CommunityId == membership.CommunityId
-                && actor.UserId == actorUserId
-                && actor.Status == MembershipStatus.Active);
-            if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
-            {
-                return ApiErrors.Invalid("User is not allowed to update membership.");
-            }
-            if (string.IsNullOrWhiteSpace(body.UserId))
-            {
-                return ApiErrors.Required(nameof(body.UserId));
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            var userExists = await dbContext.Users.AnyAsync(user => user.Id == body.UserId);
-            if (!userExists)
-            {
-                return ApiErrors.Invalid("UserId does not exist.");
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            if (!string.IsNullOrWhiteSpace(body.InvitedByUserId))
-            {
-                var inviterExists = await dbContext.Users
-                    .AnyAsync(user => user.Id == body.InvitedByUserId);
-                if (!inviterExists)
-                {
-                    return ApiErrors.Invalid("InvitedByUserId does not exist.");
-                }
-            }
-
-            membership.UserId = body.UserId;
-            membership.CommunityId = body.CommunityId;
-            membership.Role = body.Role;
-            membership.Status = body.Status;
-            membership.InvitedByUserId = body.InvitedByUserId;
-            membership.JoinedAt = body.JoinedAt;
-
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(membership);
-        });
-
-        group.MapPost("/{id}/role", async (
-            string id,
-            UpdateMembershipRoleRequest body,
-            ClaimsPrincipal user,
-            CondivaDbContext dbContext) =>
-        {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
-            {
-                return ApiErrors.Unauthorized();
-            }
             if (string.IsNullOrWhiteSpace(body.Role))
             {
                 return ApiErrors.Required(nameof(body.Role));
             }
-            if (!Enum.TryParse<MembershipRole>(body.Role, true, out var newRole))
+            if (string.IsNullOrWhiteSpace(body.Status))
+            {
+                return ApiErrors.Required(nameof(body.Status));
+            }
+            if (!Enum.TryParse<MembershipRole>(body.Role, true, out var roleValue))
             {
                 return ApiErrors.Invalid("Invalid role.");
             }
-
-            var membership = await dbContext.Memberships.FindAsync(id);
-            if (membership is null)
+            if (!Enum.TryParse<MembershipStatus>(body.Status, true, out var statusValue))
             {
-                return ApiErrors.NotFound("Membership");
+                return ApiErrors.Invalid("Invalid status.");
             }
 
-            var actorMembership = await dbContext.Memberships.FirstOrDefaultAsync(actor =>
-                actor.CommunityId == membership.CommunityId
-                && actor.UserId == actorUserId
-                && actor.Status == MembershipStatus.Active);
-            if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
+            var model = new Membership
             {
-                return ApiErrors.Invalid("User is not allowed to change roles.");
-            }
-            if (membership.UserId == actorUserId)
+                UserId = body.UserId,
+                CommunityId = body.CommunityId,
+                Role = roleValue,
+                Status = statusValue,
+                InvitedByUserId = body.InvitedByUserId,
+                JoinedAt = body.JoinedAt
+            };
+
+            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Invalid("Owner role cannot be changed by the same user.");
-            }
-            if (membership.Role == MembershipRole.Owner && newRole != MembershipRole.Owner)
-            {
-                var otherOwners = await dbContext.Memberships.AnyAsync(other =>
-                    other.CommunityId == membership.CommunityId
-                    && other.Role == MembershipRole.Owner
-                    && other.UserId != membership.UserId
-                    && other.Status == MembershipStatus.Active);
-                if (!otherOwners)
-                {
-                    return ApiErrors.Invalid("At least one active owner is required.");
-                }
+                return result.Error!;
             }
 
-            membership.Role = newRole;
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(membership);
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            return Results.Ok(payload);
+        });
+
+        group.MapPost("/{id}/role", async (
+            string id,
+            UpdateMembershipRoleRequestDto body,
+            ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var model = new UpdateMembershipRoleRequest(body.Role);
+
+            var result = await repository.UpdateRoleAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            IMembershipRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.DeleteAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var membership = await dbContext.Memberships.FindAsync(id);
-            if (membership is null)
-            {
-                return ApiErrors.NotFound("Membership");
-            }
-            var actorMembership = await dbContext.Memberships.FirstOrDefaultAsync(actor =>
-                actor.CommunityId == membership.CommunityId
-                && actor.UserId == actorUserId
-                && actor.Status == MembershipStatus.Active);
-            if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
-            {
-                return ApiErrors.Invalid("User is not allowed to remove members.");
-            }
-            if (membership.Role == MembershipRole.Owner)
-            {
-                var canRemoveOwner = await HasAnotherActiveOwner(membership, dbContext);
-                if (!canRemoveOwner)
-                {
-                    return ApiErrors.Invalid("At least one active owner is required.");
-                }
+                return result.Error!;
             }
 
-            dbContext.Memberships.Remove(membership);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 
         group.MapPost("/leave/{communityId}", async (
             string communityId,
             ClaimsPrincipal user,
+            IMembershipRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.LeaveAsync(communityId, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            if (string.IsNullOrWhiteSpace(communityId))
-            {
-                return ApiErrors.Required(nameof(communityId));
+                return result.Error!;
             }
 
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(member =>
-                member.CommunityId == communityId
-                && member.UserId == actorUserId
-                && member.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.NotFound("Membership");
-            }
-            if (membership.Role == MembershipRole.Owner)
-            {
-                var canLeaveOwner = await HasAnotherActiveOwner(membership, dbContext);
-                if (!canLeaveOwner)
-                {
-                    return ApiErrors.Invalid("At least one active owner is required.");
-                }
-            }
-
-            dbContext.Memberships.Remove(membership);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 
         return endpoints;
     }
 
-    private static async Task<bool> HasAnotherActiveOwner(
-        Membership membership,
-        CondivaDbContext dbContext)
-    {
-        return await dbContext.Memberships.AnyAsync(other =>
-            other.CommunityId == membership.CommunityId
-            && other.Role == MembershipRole.Owner
-            && other.UserId != membership.UserId
-            && other.Status == MembershipStatus.Active);
-    }
-
-    public sealed record UpdateMembershipRoleRequest(string? Role);
 }

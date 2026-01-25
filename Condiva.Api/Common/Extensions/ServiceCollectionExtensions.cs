@@ -1,15 +1,24 @@
 using System;
+using System.Text;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
 using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
+using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities;
+using Condiva.Api.Features.Communities.Data;
+using Condiva.Api.Features.Events.Data;
+using Condiva.Api.Features.Items.Data;
+using Condiva.Api.Features.Loans.Data;
+using Condiva.Api.Features.Memberships.Data;
+using Condiva.Api.Features.Offers.Data;
+using Condiva.Api.Features.Reputations.Data;
+using Condiva.Api.Features.Requests.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using Microsoft.OpenApi;
 
 namespace Condiva.Api.Common.Extensions;
 
@@ -114,7 +123,19 @@ public static class ServiceCollectionExtensions
             });
         }
 
-        services.AddCommunities(configuration);
+        services.AddScoped<ICommunityRepository, CommunityRepository>();
+        services.AddScoped<IItemRepository, ItemRepository>();
+        services.AddScoped<IRequestRepository, RequestRepository>();
+        services.AddScoped<IMembershipRepository, MembershipRepository>();
+        services.AddScoped<IOfferRepository, OfferRepository>();
+        services.AddScoped<ILoanRepository, LoanRepository>();
+        services.AddScoped<IReputationRepository, ReputationRepository>();
+        services.AddScoped<IEventRepository, EventRepository>();
+
+        var mapperRegistry = new MapperRegistry();
+        MappingRegistration.RegisterAll(mapperRegistry);
+        services.AddSingleton(mapperRegistry);
+        services.AddSingleton<IMapper, AppMapper>();
 
         return services;
     }

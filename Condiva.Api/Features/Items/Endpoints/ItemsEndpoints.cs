@@ -1,9 +1,10 @@
-using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
-using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Items.Data;
+using Condiva.Api.Features.Items.Dtos;
 using Condiva.Api.Features.Items.Models;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Items.Endpoints;
@@ -17,202 +18,134 @@ public static class ItemsEndpoints
         group.RequireAuthorization();
         group.WithTags("Items");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Items.ToListAsync());
-
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/", async (
+            string? communityId,
+            ClaimsPrincipal user,
+            IItemRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var item = await dbContext.Items.FindAsync(id);
-            return item is null ? ApiErrors.NotFound("Item") : Results.Ok(item);
+            if (string.IsNullOrWhiteSpace(communityId))
+            {
+                return ApiErrors.Required(nameof(communityId));
+            }
+
+            var result = await repository.GetAllAsync(communityId, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Item, ItemListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
+
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IItemRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var result = await repository.GetByIdAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/", async (
-            Item body,
+            CreateItemRequestDto body,
             ClaimsPrincipal user,
+            IItemRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
+            if (!Enum.TryParse<ItemStatus>(body.Status, true, out var status))
             {
-                return ApiErrors.Required(nameof(body.CommunityId));
+                return ApiErrors.Invalid("Invalid status.");
             }
-            if (string.IsNullOrWhiteSpace(body.OwnerUserId))
-            {
-                return ApiErrors.Required(nameof(body.OwnerUserId));
-            }
-            if (!string.Equals(body.OwnerUserId, actorUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("OwnerUserId must match the current user.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Name))
-            {
-                return ApiErrors.Required(nameof(body.Name));
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var ownerExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.OwnerUserId);
-            if (!ownerExists)
-            {
-                return ApiErrors.Invalid("OwnerUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.OwnerUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("OwnerUserId is not a member of the community.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.CreatedAt = DateTime.UtcNow;
-            body.UpdatedAt = null;
 
-            dbContext.Items.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/items/{body.Id}", body);
+            var model = new Item
+            {
+                CommunityId = body.CommunityId,
+                OwnerUserId = body.OwnerUserId,
+                Name = body.Name,
+                Description = body.Description,
+                Category = body.Category,
+                Status = status
+            };
+
+            var result = await repository.CreateAsync(model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            return Results.Created($"/api/items/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            Item body,
+            UpdateItemRequestDto body,
             ClaimsPrincipal user,
+            IItemRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            if (string.IsNullOrWhiteSpace(body.Status))
             {
-                return ApiErrors.Unauthorized();
+                return ApiErrors.Required(nameof(body.Status));
             }
-            var item = await dbContext.Items.FindAsync(id);
-            if (item is null)
+            if (!Enum.TryParse<ItemStatus>(body.Status, true, out var status))
             {
-                return ApiErrors.NotFound("Item");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == item.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(item.OwnerUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to update the item.");
-            }
-            if (item.Status is ItemStatus.Reserved or ItemStatus.InLoan)
-            {
-                return ApiErrors.Invalid("Item cannot be updated while reserved or in loan.");
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.OwnerUserId))
-            {
-                return ApiErrors.Required(nameof(body.OwnerUserId));
-            }
-            if (!CanManageCommunity(membership)
-                && !string.Equals(body.OwnerUserId, item.OwnerUserId, StringComparison.Ordinal))
-            {
-                return ApiErrors.Invalid("OwnerUserId cannot be changed.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Name))
-            {
-                return ApiErrors.Required(nameof(body.Name));
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var ownerExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.OwnerUserId);
-            if (!ownerExists)
-            {
-                return ApiErrors.Invalid("OwnerUserId does not exist.");
-            }
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == body.CommunityId
-                && membership.UserId == body.OwnerUserId
-                && membership.Status == MembershipStatus.Active);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("OwnerUserId is not a member of the community.");
+                return ApiErrors.Invalid("Invalid status.");
             }
 
-            item.CommunityId = body.CommunityId;
-            item.OwnerUserId = body.OwnerUserId;
-            item.Name = body.Name;
-            item.Description = body.Description;
-            item.Category = body.Category;
-            item.Status = body.Status;
-            item.UpdatedAt = DateTime.UtcNow;
+            var model = new Item
+            {
+                CommunityId = body.CommunityId,
+                OwnerUserId = body.OwnerUserId,
+                Name = body.Name,
+                Description = body.Description,
+                Category = body.Category,
+                Status = status
+            };
 
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(item);
+            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            IItemRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var result = await repository.DeleteAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var item = await dbContext.Items.FindAsync(id);
-            if (item is null)
-            {
-                return ApiErrors.NotFound("Item");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == item.CommunityId
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-            var canManage = CanManageCommunity(membership)
-                || string.Equals(item.OwnerUserId, actorUserId, StringComparison.Ordinal);
-            if (!canManage)
-            {
-                return ApiErrors.Invalid("User is not allowed to delete the item.");
-            }
-            if (item.Status is ItemStatus.Reserved or ItemStatus.InLoan)
-            {
-                return ApiErrors.Invalid("Item cannot be deleted while reserved or in loan.");
+                return result.Error!;
             }
 
-            dbContext.Items.Remove(item);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 
         return endpoints;
-    }
-
-    private static bool CanManageCommunity(Membership membership)
-    {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
     }
 }

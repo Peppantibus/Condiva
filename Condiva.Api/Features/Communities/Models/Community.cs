@@ -1,6 +1,7 @@
 using Condiva.Api.Features.Events.Models;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Loans.Models;
+using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Models;
 using Condiva.Api.Features.Reputations.Models;
 using Condiva.Api.Features.Requests.Models;

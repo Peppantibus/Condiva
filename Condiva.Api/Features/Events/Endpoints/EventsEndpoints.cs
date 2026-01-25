@@ -1,8 +1,9 @@
-using Condiva.Api.Common.Auth;
-using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Events.Data;
+using Condiva.Api.Features.Events.Dtos;
 using Condiva.Api.Features.Events.Models;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Events.Endpoints;
@@ -16,131 +17,105 @@ public static class EventsEndpoints
         group.RequireAuthorization();
         group.WithTags("Events");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Events.ToListAsync());
-
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/", async (
+            ClaimsPrincipal user,
+            IEventRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var evt = await dbContext.Events.FindAsync(id);
-            return evt is null ? ApiErrors.NotFound("Event") : Results.Ok(evt);
+            var result = await repository.GetAllAsync(user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Event, EventListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
+
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IEventRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var result = await repository.GetByIdAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/", async (
-            Event body,
+            CreateEventRequestDto body,
             ClaimsPrincipal user,
+            IEventRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var model = new Event
             {
-                return ApiErrors.Unauthorized();
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.EntityType))
-            {
-                return ApiErrors.Required(nameof(body.EntityType));
-            }
-            if (string.IsNullOrWhiteSpace(body.EntityId))
-            {
-                return ApiErrors.Required(nameof(body.EntityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.Action))
-            {
-                return ApiErrors.Required(nameof(body.Action));
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var actorExists = await dbContext.Users
-                .AnyAsync(user => user.Id == actorUserId);
-            if (!actorExists)
-            {
-                return ApiErrors.Invalid("ActorUserId does not exist.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.CreatedAt = DateTime.UtcNow;
-            body.ActorUserId = actorUserId;
+                CommunityId = body.CommunityId,
+                EntityType = body.EntityType,
+                EntityId = body.EntityId,
+                Action = body.Action,
+                Payload = body.Payload
+            };
 
-            dbContext.Events.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/events/{body.Id}", body);
+            var result = await repository.CreateAsync(model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            return Results.Created($"/api/events/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            Event body,
+            UpdateEventRequestDto body,
             ClaimsPrincipal user,
+            IEventRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var model = new Event
             {
-                return ApiErrors.Unauthorized();
-            }
-            var evt = await dbContext.Events.FindAsync(id);
-            if (evt is null)
+                CommunityId = body.CommunityId,
+                EntityType = body.EntityType,
+                EntityId = body.EntityId,
+                Action = body.Action,
+                Payload = body.Payload
+            };
+
+            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.NotFound("Event");
-            }
-            if (string.IsNullOrWhiteSpace(body.CommunityId))
-            {
-                return ApiErrors.Required(nameof(body.CommunityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.EntityType))
-            {
-                return ApiErrors.Required(nameof(body.EntityType));
-            }
-            if (string.IsNullOrWhiteSpace(body.EntityId))
-            {
-                return ApiErrors.Required(nameof(body.EntityId));
-            }
-            if (string.IsNullOrWhiteSpace(body.Action))
-            {
-                return ApiErrors.Required(nameof(body.Action));
-            }
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == body.CommunityId);
-            if (!communityExists)
-            {
-                return ApiErrors.Invalid("CommunityId does not exist.");
-            }
-            var actorExists = await dbContext.Users
-                .AnyAsync(user => user.Id == actorUserId);
-            if (!actorExists)
-            {
-                return ApiErrors.Invalid("ActorUserId does not exist.");
+                return result.Error!;
             }
 
-            evt.CommunityId = body.CommunityId;
-            evt.ActorUserId = actorUserId;
-            evt.EntityType = body.EntityType;
-            evt.EntityId = body.EntityId;
-            evt.Action = body.Action;
-            evt.Payload = body.Payload;
-
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(evt);
+            var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
-        group.MapDelete("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapDelete("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            IEventRepository repository,
+            CondivaDbContext dbContext) =>
         {
-            var evt = await dbContext.Events.FindAsync(id);
-            if (evt is null)
+            var result = await repository.DeleteAsync(id, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return Results.NotFound();
+                return result.Error!;
             }
 
-            dbContext.Events.Remove(evt);
-            await dbContext.SaveChangesAsync();
             return Results.NoContent();
         });
 

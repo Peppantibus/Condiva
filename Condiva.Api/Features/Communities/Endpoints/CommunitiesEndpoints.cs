@@ -1,16 +1,27 @@
-using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Communities.Data;
+using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Features.Items.Dtos;
 using Condiva.Api.Features.Items.Models;
+using Condiva.Api.Features.Memberships.Dtos;
+using Condiva.Api.Features.Memberships.Models;
+using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
-using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Communities.Endpoints;
 
 public static class CommunitiesEndpoints
 {
+    private const int DefaultPage = 1;
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize = 100;
+    private const int MaxIdLength = 64;
+    private const int MaxCategoryLength = 64;
+
     public static IEndpointRouteBuilder MapCommunitiesEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -18,127 +29,116 @@ public static class CommunitiesEndpoints
         group.RequireAuthorization();
         group.WithTags("Communities");
 
-        group.MapGet("/", async (CondivaDbContext dbContext) =>
-            await dbContext.Communities.ToListAsync());
-
-        group.MapGet("/{id}", async (string id, CondivaDbContext dbContext) =>
+        group.MapGet("/", async (
+            ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
-            var community = await dbContext.Communities.FindAsync(id);
-            return community is null ? ApiErrors.NotFound("Community") : Results.Ok(community);
+            var result = await repository.GetAllAsync(user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        });
+
+        group.MapGet("/{id}", async (
+            string id,
+            ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+
+            var result = await repository.GetByIdAsync(normalizedId!, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapGet("/{id}/invite-code", async (
             string id,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
             {
-                return ApiErrors.Unauthorized();
+                return idError;
             }
 
-            var community = await dbContext.Communities.FindAsync(id);
-            if (community is null)
+            var result = await repository.GetInviteCodeAsync(normalizedId!, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.NotFound("Community");
+                return result.Error!;
             }
 
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == id
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-
-            if (membership is null || !CanManageInvites(membership))
-            {
-                return ApiErrors.Invalid("User is not allowed to manage invites.");
-            }
-
-            return Results.Ok(new { enterCode = community.EnterCode });
+            var payload = mapper.Map<InviteCodeInfo, InviteCodeResponseDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/{id}/invite-code/rotate", async (
             string id,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
             {
-                return ApiErrors.Unauthorized();
+                return idError;
             }
 
-            var community = await dbContext.Communities.FindAsync(id);
-            if (community is null)
+            var result = await repository.RotateInviteCodeAsync(normalizedId!, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.NotFound("Community");
+                return result.Error!;
             }
 
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == id
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-
-            if (membership is null || membership.Role != MembershipRole.Owner)
-            {
-                return ApiErrors.Invalid("User is not allowed to rotate invites.");
-            }
-
-            community.EnterCode = CreateEnterCode();
-            community.EnterCodeExpiresAt = CreateEnterCodeExpiry();
-            await dbContext.SaveChangesAsync();
-
-            return Results.Ok(new { enterCode = community.EnterCode });
+            var payload = mapper.Map<InviteCodeInfo, InviteCodeResponseDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapPost("/join", async (
-            JoinCommunityRequest body,
+            JoinCommunityRequestDto body,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
-            {
-                return ApiErrors.Unauthorized();
-            }
-            if (string.IsNullOrWhiteSpace(body.EnterCode))
+            var inviteCode = Normalize(body.EnterCode);
+            if (string.IsNullOrWhiteSpace(inviteCode))
             {
                 return ApiErrors.Required(nameof(body.EnterCode));
             }
 
-            var community = await dbContext.Communities
-                .FirstOrDefaultAsync(c => c.EnterCode == body.EnterCode);
-            if (community is null)
+            var result = await repository.JoinAsync(inviteCode, user, dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Invalid("EnterCode is invalid.");
-            }
-            if (community.EnterCodeExpiresAt <= DateTime.UtcNow)
-            {
-                return ApiErrors.Invalid("EnterCode has expired.");
+                return result.Error!;
             }
 
-            var existingMembership = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == community.Id
-                && membership.UserId == actorUserId);
-            if (existingMembership)
-            {
-                return ApiErrors.Invalid("User is already a member of the community.");
-            }
-
-            var member = new Membership
-            {
-                Id = Guid.NewGuid().ToString(),
-                UserId = actorUserId,
-                CommunityId = community.Id,
-                Role = MembershipRole.Member,
-                Status = MembershipStatus.Active,
-                CreatedAt = DateTime.UtcNow,
-                JoinedAt = DateTime.UtcNow
-            };
-
-            dbContext.Memberships.Add(member);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/memberships/{member.Id}", member);
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            return Results.Created($"/api/memberships/{payload.Id}", payload);
         });
 
         group.MapGet("/{id}/requests/feed", async (
@@ -147,61 +147,46 @@ public static class CommunitiesEndpoints
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
             {
-                return ApiErrors.Unauthorized();
+                return idError;
             }
 
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == id);
-            if (!communityExists)
+            var normalizedStatus = Normalize(status);
+            var statusError = ValidateStatus(normalizedStatus);
+            if (statusError is not null)
             {
-                return ApiErrors.NotFound("Community");
+                return statusError;
             }
 
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == id && membership.UserId == actorUserId);
-            if (!isMember)
+            var pageNumber = ClampPage(page);
+            var size = ClampPageSize(pageSize);
+
+            var result = await repository.GetRequestsFeedAsync(
+                normalizedId!,
+                normalizedStatus,
+                pageNumber,
+                size,
+                user,
+                dbContext);
+            if (!result.IsSuccess)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return result.Error!;
             }
 
-            var requestStatus = RequestStatus.Open;
-            if (!string.IsNullOrWhiteSpace(status))
-            {
-                if (!Enum.TryParse<RequestStatus>(status, true, out requestStatus))
-                {
-                    return ApiErrors.Invalid("Invalid status filter.");
-                }
-            }
-
-            var pageNumber = page.GetValueOrDefault(1);
-            var size = pageSize.GetValueOrDefault(20);
-            if (pageNumber <= 0 || size <= 0 || size > 100)
-            {
-                return ApiErrors.Invalid("Invalid pagination parameters.");
-            }
-
-            var query = dbContext.Requests
-                .Where(request => request.CommunityId == id && request.Status == requestStatus);
-
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderByDescending(request => request.CreatedAt)
-                .Skip((pageNumber - 1) * size)
-                .Take(size)
-                .ToListAsync();
-
-            return Results.Ok(new
-            {
-                items,
-                page = pageNumber,
-                pageSize = size,
-                total
-            });
+            var mapped = mapper.MapList<Request, RequestListItemDto>(result.Data!.Items).ToList();
+            var payload = new PagedResponseDto<RequestListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
+            return Results.Ok(payload);
         });
 
         group.MapGet("/{id}/items/available", async (
@@ -210,191 +195,240 @@ public static class CommunitiesEndpoints
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+
+            var normalizedCategory = Normalize(category);
+            var categoryError = ValidateCategory(normalizedCategory);
+            if (categoryError is not null)
+            {
+                return categoryError;
+            }
+
+            var pageNumber = ClampPage(page);
+            var size = ClampPageSize(pageSize);
+
+            var result = await repository.GetAvailableItemsAsync(
+                normalizedId!,
+                normalizedCategory,
+                pageNumber,
+                size,
+                user,
+                dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var mapped = mapper.MapList<Item, ItemListItemDto>(result.Data!.Items).ToList();
+            var payload = new PagedResponseDto<ItemListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
+            return Results.Ok(payload);
+        });
+
+        group.MapPost("/", async (
+            CreateCommunityRequestDto body,
+            ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
             {
                 return ApiErrors.Unauthorized();
             }
 
-            var communityExists = await dbContext.Communities
-                .AnyAsync(community => community.Id == id);
-            if (!communityExists)
+            var model = new Community
             {
-                return ApiErrors.NotFound("Community");
+                Name = body.Name,
+                Slug = body.Slug,
+                Description = body.Description,
+                CreatedByUserId = actorUserId
+            };
+
+            var result = await repository.CreateAsync(model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
             }
 
-            var isMember = await dbContext.Memberships.AnyAsync(membership =>
-                membership.CommunityId == id && membership.UserId == actorUserId);
-            if (!isMember)
-            {
-                return ApiErrors.Invalid("User is not a member of the community.");
-            }
-
-            var pageNumber = page.GetValueOrDefault(1);
-            var size = pageSize.GetValueOrDefault(20);
-            if (pageNumber <= 0 || size <= 0 || size > 100)
-            {
-                return ApiErrors.Invalid("Invalid pagination parameters.");
-            }
-
-            var query = dbContext.Items
-                .Where(item => item.CommunityId == id && item.Status == ItemStatus.Available);
-
-            if (!string.IsNullOrWhiteSpace(category))
-            {
-                query = query.Where(item => item.Category == category);
-            }
-
-            var total = await query.CountAsync();
-            var items = await query
-                .OrderByDescending(item => item.CreatedAt)
-                .Skip((pageNumber - 1) * size)
-                .Take(size)
-                .ToListAsync();
-
-            return Results.Ok(new
-            {
-                items,
-                page = pageNumber,
-                pageSize = size,
-                total
-            });
-        });
-
-        group.MapPost("/", async (Community body, CondivaDbContext dbContext) =>
-        {
-            if (string.IsNullOrWhiteSpace(body.Name))
-            {
-                return ApiErrors.Required(nameof(body.Name));
-            }
-            if (string.IsNullOrWhiteSpace(body.Slug))
-            {
-                return ApiErrors.Required(nameof(body.Slug));
-            }
-            if (string.IsNullOrWhiteSpace(body.CreatedByUserId))
-            {
-                return ApiErrors.Required(nameof(body.CreatedByUserId));
-            }
-            var creatorExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.CreatedByUserId);
-            if (!creatorExists)
-            {
-                return ApiErrors.Invalid("CreatedByUserId does not exist.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Id))
-            {
-                body.Id = Guid.NewGuid().ToString();
-            }
-            body.EnterCode = CreateEnterCode();
-            body.EnterCodeExpiresAt = CreateEnterCodeExpiry();
-            body.CreatedAt = DateTime.UtcNow;
-
-            dbContext.Communities.Add(body);
-            await dbContext.SaveChangesAsync();
-            return Results.Created($"/api/communities/{body.Id}", body);
+            var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            return Results.Created($"/api/communities/{payload.Id}", payload);
         });
 
         group.MapPut("/{id}", async (
             string id,
-            Community body,
+            UpdateCommunityRequestDto body,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
+            var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
             {
                 return ApiErrors.Unauthorized();
             }
-            var community = await dbContext.Communities.FindAsync(id);
-            if (community is null)
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
             {
-                return ApiErrors.NotFound("Community");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == id
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null || membership.Role != MembershipRole.Owner)
-            {
-                return ApiErrors.Invalid("User is not allowed to update the community.");
-            }
-            if (string.IsNullOrWhiteSpace(body.Name))
-            {
-                return ApiErrors.Required(nameof(body.Name));
-            }
-            if (string.IsNullOrWhiteSpace(body.Slug))
-            {
-                return ApiErrors.Required(nameof(body.Slug));
-            }
-            if (string.IsNullOrWhiteSpace(body.CreatedByUserId))
-            {
-                return ApiErrors.Required(nameof(body.CreatedByUserId));
-            }
-            var creatorExists = await dbContext.Users
-                .AnyAsync(user => user.Id == body.CreatedByUserId);
-            if (!creatorExists)
-            {
-                return ApiErrors.Invalid("CreatedByUserId does not exist.");
+                return idError;
             }
 
-            community.Name = body.Name;
-            community.Slug = body.Slug;
-            community.Description = body.Description;
-            community.CreatedByUserId = body.CreatedByUserId;
+            var model = new Community
+            {
+                Name = body.Name,
+                Slug = body.Slug,
+                Description = body.Description
+            };
 
-            await dbContext.SaveChangesAsync();
-            return Results.Ok(community);
+            var result = await repository.UpdateAsync(normalizedId!, model, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            return Results.Ok(payload);
         });
 
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            ICommunityRepository repository,
             CondivaDbContext dbContext) =>
         {
-            var actorUserId = CurrentUser.GetUserId(user);
-            if (string.IsNullOrWhiteSpace(actorUserId))
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
             {
-                return ApiErrors.Unauthorized();
-            }
-            var community = await dbContext.Communities.FindAsync(id);
-            if (community is null)
-            {
-                return ApiErrors.NotFound("Community");
-            }
-            var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
-                membership.CommunityId == id
-                && membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active);
-            if (membership is null || membership.Role != MembershipRole.Owner)
-            {
-                return ApiErrors.Invalid("User is not allowed to delete the community.");
+                return idError;
             }
 
-            dbContext.Communities.Remove(community);
-            await dbContext.SaveChangesAsync();
+            var result = await repository.DeleteAsync(normalizedId!, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
             return Results.NoContent();
+        });
+
+        group.MapGet("/{id}/invite-link", async (
+            string id,
+            ClaimsPrincipal user,
+            ICommunityRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext,
+            IConfiguration config,
+            HttpContext http) =>
+        {
+            // Riusa la logica di permessi/recupero code già esistente
+            var result = await repository.GetInviteCodeAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var info = result.Data!; // InviteCodeInfo(code, expiresAt)
+
+            // Base URL del frontend (consigliato metterlo in config)
+            var frontendBase = config.GetValue<string>("Frontend:BaseUrl");
+            if (string.IsNullOrWhiteSpace(frontendBase))
+            {
+                // fallback: usa host corrente (solo se ha senso per il tuo deployment)
+                frontendBase = $"{http.Request.Scheme}://{http.Request.Host}";
+            }
+
+            // pagina join lato frontend
+            var url = $"{frontendBase.TrimEnd('/')}/join?code={Uri.EscapeDataString(info.EnterCode)}";
+
+            return Results.Ok(new InviteLinkResponseDto(url, info.ExpiresAt));
         });
 
         return endpoints;
     }
 
-    private static bool CanManageInvites(Membership membership)
+    private static string? GetUserId(ClaimsPrincipal user)
     {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
+        return user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? user.FindFirst("sub")?.Value;
     }
 
-    private static string CreateEnterCode()
+    private static int ClampPage(int? page)
     {
-        return Guid.NewGuid().ToString("N");
+        var value = page.GetValueOrDefault(DefaultPage);
+        return value < 1 ? 1 : value;
     }
 
-    private static DateTime CreateEnterCodeExpiry()
+    private static int ClampPageSize(int? pageSize)
     {
-        return DateTime.UtcNow.AddDays(7);
+        var value = pageSize.GetValueOrDefault(DefaultPageSize);
+        if (value < 1)
+        {
+            return 1;
+        }
+
+        return value > MaxPageSize ? MaxPageSize : value;
     }
 
-    public sealed record JoinCommunityRequest(string? EnterCode);
+    private static IResult? ValidateId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return ApiErrors.Required("id");
+        }
+
+        if (id.Length > MaxIdLength)
+        {
+            return ApiErrors.Invalid("Invalid id.");
+        }
+
+        return null;
+    }
+
+    private static IResult? ValidateStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return null;
+        }
+
+        return Enum.TryParse<RequestStatus>(status, true, out _)
+            ? null
+            : ApiErrors.Invalid("Invalid status filter.");
+    }
+
+    private static IResult? ValidateCategory(string? category)
+    {
+        if (string.IsNullOrWhiteSpace(category))
+        {
+            return null;
+        }
+
+        return category.Length > MaxCategoryLength
+            ? ApiErrors.Invalid("Category is too long.")
+            : null;
+    }
+
+    private static string? Normalize(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    public sealed record InviteLinkResponseDto(string Url, DateTime ExpiresAt);
 }

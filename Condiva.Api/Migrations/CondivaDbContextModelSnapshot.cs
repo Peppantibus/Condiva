@@ -137,6 +137,13 @@ namespace Condiva.Api.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("EnterCode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("EnterCodeExpiresAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -148,43 +155,6 @@ namespace Condiva.Api.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Communities");
-                });
-
-            modelBuilder.Entity("Condiva.Api.Features.Communities.Models.Membership", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CommunityId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("InvitedByUserId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("JoinedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Role")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CommunityId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("Memberships");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Events.Models.Event", b =>
@@ -324,6 +294,43 @@ namespace Condiva.Api.Migrations
                     b.HasIndex("RequestId");
 
                     b.ToTable("Loans");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Memberships.Models.Membership", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CommunityId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InvitedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("JoinedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommunityId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Memberships");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>
@@ -474,25 +481,6 @@ namespace Condiva.Api.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Condiva.Api.Features.Communities.Models.Membership", b =>
-                {
-                    b.HasOne("Condiva.Api.Features.Communities.Models.Community", "Community")
-                        .WithMany("Memberships")
-                        .HasForeignKey("CommunityId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Condiva.Api.Common.Auth.Models.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Community");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Condiva.Api.Features.Events.Models.Event", b =>
                 {
                     b.HasOne("Condiva.Api.Common.Auth.Models.User", "ActorUser")
@@ -576,6 +564,25 @@ namespace Condiva.Api.Migrations
                     b.Navigation("Offer");
 
                     b.Navigation("Request");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Memberships.Models.Membership", b =>
+                {
+                    b.HasOne("Condiva.Api.Features.Communities.Models.Community", "Community")
+                        .WithMany("Memberships")
+                        .HasForeignKey("CommunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Condiva.Api.Common.Auth.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Community");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>
