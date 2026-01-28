@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Results;
+﻿using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Reputations.Models;
 using System.Security.Claims;
 
@@ -8,11 +8,9 @@ public interface IReputationRepository
 {
     Task<RepositoryResult<ReputationSnapshot>> GetMineAsync(
         string communityId,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
+        ClaimsPrincipal user);
     Task<RepositoryResult<ReputationSnapshot>> GetForUserAsync(
         string communityId,
         string userId,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
+        ClaimsPrincipal user);
 }

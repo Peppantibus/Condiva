@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Auth;
+﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Events.Models;
@@ -14,19 +14,27 @@ namespace Condiva.Api.Features.Loans.Data;
 
 public sealed class LoanRepository : ILoanRepository
 {
-    public async Task<RepositoryResult<IReadOnlyList<Loan>>> GetAllAsync(
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+    private readonly CondivaDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
+
+    public LoanRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
+
+    public async Task<RepositoryResult<IReadOnlyList<Loan>>> GetAllAsync(
+        ClaimsPrincipal user)
+    {
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Loan>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var loans = await dbContext.Loans
+        var loans = await _dbContext.Loans
             .Join(
-                dbContext.Memberships.Where(membership =>
+                _dbContext.Memberships.Where(membership =>
                     membership.UserId == actorUserId
                     && membership.Status == MembershipStatus.Active),
                 loan => loan.CommunityId,
@@ -37,29 +45,29 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<IReadOnlyList<Loan>>.Success(loans);
     }
 
+
     public async Task<RepositoryResult<Loan>> GetByIdAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
 
-        var loan = await dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans.FindAsync(id);
         return loan is null
             ? RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"))
-            : await EnsureCommunityMemberAsync(loan.CommunityId, actorUserId, dbContext, loan);
+            : await EnsureCommunityMemberAsync(loan.CommunityId, actorUserId, loan);
     }
+
 
     public async Task<RepositoryResult<Loan>> CreateAsync(
         Loan body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -90,13 +98,13 @@ public sealed class LoanRepository : ILoanRepository
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Status must be Reserved on create."));
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var actorMembership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var actorMembership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -110,7 +118,7 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("User is not allowed to create the loan directly."));
         }
-        var item = await dbContext.Items.FindAsync(body.ItemId);
+        var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ItemId does not exist."));
@@ -129,19 +137,19 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("LenderUserId must match the item owner."));
         }
-        var lenderExists = await dbContext.Users
+        var lenderExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.LenderUserId);
         if (!lenderExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("LenderUserId does not exist."));
         }
-        var borrowerExists = await dbContext.Users
+        var borrowerExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.BorrowerUserId);
         if (!borrowerExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("BorrowerUserId does not exist."));
         }
-        var lenderMember = await dbContext.Memberships.AnyAsync(membership =>
+        var lenderMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.LenderUserId
             && membership.Status == MembershipStatus.Active);
@@ -150,7 +158,7 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("LenderUserId is not a member of the community."));
         }
-        var borrowerMember = await dbContext.Memberships.AnyAsync(membership =>
+        var borrowerMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.BorrowerUserId
             && membership.Status == MembershipStatus.Active);
@@ -161,7 +169,7 @@ public sealed class LoanRepository : ILoanRepository
         }
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(body.RequestId);
+            var request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("RequestId does not exist."));
@@ -174,7 +182,7 @@ public sealed class LoanRepository : ILoanRepository
         }
         if (!string.IsNullOrWhiteSpace(body.OfferId))
         {
-            var offer = await dbContext.Offers.FindAsync(body.OfferId);
+            var offer = await _dbContext.Offers.FindAsync(body.OfferId);
             if (offer is null)
             {
                 return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("OfferId does not exist."));
@@ -194,41 +202,41 @@ public sealed class LoanRepository : ILoanRepository
             body.StartAt = DateTime.UtcNow;
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
         item.Status = ItemStatus.Reserved;
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(body.RequestId);
+            var request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is not null)
             {
                 request.Status = RequestStatus.Accepted;
             }
         }
 
-        dbContext.Loans.Add(body);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Loans.Add(body);
+        await _dbContext.SaveChangesAsync();
         await transaction.CommitAsync();
         return RepositoryResult<Loan>.Success(body);
     }
 
+
     public async Task<RepositoryResult<Loan>> UpdateAsync(
         string id,
         Loan body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
-        var loan = await dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans.FindAsync(id);
         if (loan is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == loan.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -283,13 +291,13 @@ public sealed class LoanRepository : ILoanRepository
                     ApiErrors.Invalid("Only community managers can change loan participants or references."));
             }
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var item = await dbContext.Items.FindAsync(body.ItemId);
+        var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ItemId does not exist."));
@@ -304,19 +312,19 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("LenderUserId must match the item owner."));
         }
-        var lenderExists = await dbContext.Users
+        var lenderExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.LenderUserId);
         if (!lenderExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("LenderUserId does not exist."));
         }
-        var borrowerExists = await dbContext.Users
+        var borrowerExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.BorrowerUserId);
         if (!borrowerExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("BorrowerUserId does not exist."));
         }
-        var lenderMember = await dbContext.Memberships.AnyAsync(membership =>
+        var lenderMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.LenderUserId
             && membership.Status == MembershipStatus.Active);
@@ -325,7 +333,7 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("LenderUserId is not a member of the community."));
         }
-        var borrowerMember = await dbContext.Memberships.AnyAsync(membership =>
+        var borrowerMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.BorrowerUserId
             && membership.Status == MembershipStatus.Active);
@@ -336,7 +344,7 @@ public sealed class LoanRepository : ILoanRepository
         }
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(body.RequestId);
+            var request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("RequestId does not exist."));
@@ -349,7 +357,7 @@ public sealed class LoanRepository : ILoanRepository
         }
         if (!string.IsNullOrWhiteSpace(body.OfferId))
         {
-            var offer = await dbContext.Offers.FindAsync(body.OfferId);
+            var offer = await _dbContext.Offers.FindAsync(body.OfferId);
             if (offer is null)
             {
                 return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("OfferId does not exist."));
@@ -372,26 +380,26 @@ public sealed class LoanRepository : ILoanRepository
         loan.DueAt = body.DueAt;
         loan.ReturnedAt = body.ReturnedAt;
 
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Loan>.Success(loan);
     }
 
+
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
         }
-        var loan = await dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans.FindAsync(id);
         if (loan is null)
         {
             return RepositoryResult<bool>.Failure(ApiErrors.NotFound("Loan"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == loan.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -414,32 +422,32 @@ public sealed class LoanRepository : ILoanRepository
                 ApiErrors.Invalid("Loan cannot be deleted unless reserved."));
         }
 
-        dbContext.Loans.Remove(loan);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Loans.Remove(loan);
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<bool>.Success(true);
     }
 
+
     public async Task<RepositoryResult<Loan>> StartAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
-        var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
-        var loan = await dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans.FindAsync(id);
         if (loan is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == loan.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -461,7 +469,7 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Loan is not reserved."));
         }
 
-        var item = await dbContext.Items.FindAsync(loan.ItemId);
+        var item = await _dbContext.Items.FindAsync(loan.ItemId);
         if (item is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Item does not exist."));
@@ -478,45 +486,45 @@ public sealed class LoanRepository : ILoanRepository
             loan.StartAt = DateTime.UtcNow;
         }
 
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             loan.CommunityId,
             actorUserId,
             "Loan",
             loan.Id,
             "LoanStarted",
             DateTime.UtcNow));
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             loan.CommunityId,
             actorUserId,
             "Item",
             item.Id,
             "ItemInLoan",
             DateTime.UtcNow));
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Loan>.Success(loan);
     }
 
+
     public async Task<RepositoryResult<Loan>> ReturnAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
-        var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
-        var loan = await dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans.FindAsync(id);
         if (loan is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == loan.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -538,7 +546,7 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Loan is not in progress."));
         }
 
-        var item = await dbContext.Items.FindAsync(loan.ItemId);
+        var item = await _dbContext.Items.FindAsync(loan.ItemId);
         if (item is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Item does not exist."));
@@ -560,17 +568,16 @@ public sealed class LoanRepository : ILoanRepository
             loan.CommunityId,
             loan.LenderUserId,
             loan.BorrowerUserId,
-            returnedOnTime,
-            dbContext);
+            returnedOnTime);
 
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             loan.CommunityId,
             actorUserId,
             "Loan",
             loan.Id,
             "LoanReturned",
             DateTime.UtcNow));
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             loan.CommunityId,
             actorUserId,
             "Item",
@@ -579,11 +586,11 @@ public sealed class LoanRepository : ILoanRepository
             DateTime.UtcNow));
         if (!string.IsNullOrWhiteSpace(loan.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(loan.RequestId);
+            var request = await _dbContext.Requests.FindAsync(loan.RequestId);
             if (request is not null)
             {
                 request.Status = RequestStatus.Closed;
-                dbContext.Events.Add(CreateEvent(
+                _dbContext.Events.Add(CreateEvent(
                     loan.CommunityId,
                     actorUserId,
                     "Request",
@@ -593,23 +600,22 @@ public sealed class LoanRepository : ILoanRepository
             }
         }
 
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Loan>.Success(loan);
     }
 
-    private static async Task ApplyReturnReputationUpdate(
+    private async Task ApplyReturnReputationUpdate(
         string communityId,
         string lenderUserId,
         string borrowerUserId,
-        bool returnedOnTime,
-        CondivaDbContext dbContext)
+        bool returnedOnTime)
     {
-        var lenderProfile = await GetOrCreateProfile(communityId, lenderUserId, dbContext);
+        var lenderProfile = await GetOrCreateProfile(communityId, lenderUserId);
         lenderProfile.LendCount += 1;
         lenderProfile.Score += ReputationWeights.LendPoints;
         lenderProfile.UpdatedAt = DateTime.UtcNow;
 
-        var borrowerProfile = await GetOrCreateProfile(communityId, borrowerUserId, dbContext);
+        var borrowerProfile = await GetOrCreateProfile(communityId, borrowerUserId);
         borrowerProfile.ReturnCount += 1;
         borrowerProfile.Score += ReputationWeights.ReturnPoints;
         if (returnedOnTime)
@@ -620,12 +626,11 @@ public sealed class LoanRepository : ILoanRepository
         borrowerProfile.UpdatedAt = DateTime.UtcNow;
     }
 
-    private static async Task<ReputationProfile> GetOrCreateProfile(
+    private async Task<ReputationProfile> GetOrCreateProfile(
         string communityId,
-        string userId,
-        CondivaDbContext dbContext)
+        string userId)
     {
-        var profile = await dbContext.Reputations.FirstOrDefaultAsync(reputation =>
+        var profile = await _dbContext.Reputations.FirstOrDefaultAsync(reputation =>
             reputation.CommunityId == communityId && reputation.UserId == userId);
 
         if (profile is not null)
@@ -645,7 +650,7 @@ public sealed class LoanRepository : ILoanRepository
             UpdatedAt = DateTime.UtcNow
         };
 
-        dbContext.Reputations.Add(profile);
+        _dbContext.Reputations.Add(profile);
         return profile;
     }
 
@@ -655,13 +660,12 @@ public sealed class LoanRepository : ILoanRepository
             || membership.Role == MembershipRole.Moderator;
     }
 
-    private static async Task<RepositoryResult<Loan>> EnsureCommunityMemberAsync(
+    private async Task<RepositoryResult<Loan>> EnsureCommunityMemberAsync(
         string communityId,
         string actorUserId,
-        CondivaDbContext dbContext,
         Loan loan)
     {
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);

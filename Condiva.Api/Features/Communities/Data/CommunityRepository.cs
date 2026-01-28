@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Auth;
+﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Communities.Models;
@@ -12,22 +12,31 @@ namespace Condiva.Api.Features.Communities.Data;
 
 public sealed class CommunityRepository : ICommunityRepository
 {
-    public async Task<RepositoryResult<IReadOnlyList<Community>>> GetAllAsync(
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+    private readonly CondivaDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
+
+    public CommunityRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
+
+
+    public async Task<RepositoryResult<IReadOnlyList<Community>>> GetAllAsync(
+        ClaimsPrincipal user)
+    {
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Community>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var communities = await dbContext.Memberships
+        var communities = await _dbContext.Memberships
             .Where(membership =>
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active)
             .Join(
-                dbContext.Communities,
+                _dbContext.Communities,
                 membership => membership.CommunityId,
                 community => community.Id,
                 (_, community) => community)
@@ -36,41 +45,41 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<IReadOnlyList<Community>>.Success(communities);
     }
 
+
     public async Task<RepositoryResult<Community>> GetByIdAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
         }
 
-        var community = await dbContext.Communities.FindAsync(id);
+        var community = await _dbContext.Communities.FindAsync(id);
         return community is null
             ? RepositoryResult<Community>.Failure(ApiErrors.NotFound("Community"))
-            : await EnsureCommunityMemberAsync(community, actorUserId, dbContext);
+            : await EnsureCommunityMemberAsync(community, actorUserId);
     }
+
 
     public async Task<RepositoryResult<InviteCodeInfo>> GetInviteCodeAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.Unauthorized());
         }
 
-        var community = await dbContext.Communities.FindAsync(id);
+        var community = await _dbContext.Communities.FindAsync(id);
         if (community is null)
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.NotFound("Community"));
         }
 
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -85,24 +94,24 @@ public sealed class CommunityRepository : ICommunityRepository
             new InviteCodeInfo(community.EnterCode, community.EnterCodeExpiresAt));
     }
 
+
     public async Task<RepositoryResult<InviteCodeInfo>> RotateInviteCodeAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.Unauthorized());
         }
 
-        var community = await dbContext.Communities.FindAsync(id);
+        var community = await _dbContext.Communities.FindAsync(id);
         if (community is null)
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.NotFound("Community"));
         }
 
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -115,18 +124,18 @@ public sealed class CommunityRepository : ICommunityRepository
 
         community.EnterCode = CreateEnterCode();
         community.EnterCodeExpiresAt = CreateEnterCodeExpiry();
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
 
         return RepositoryResult<InviteCodeInfo>.Success(
             new InviteCodeInfo(community.EnterCode, community.EnterCodeExpiresAt));
     }
 
+
     public async Task<RepositoryResult<Membership>> JoinAsync(
         string? enterCode,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
@@ -138,20 +147,20 @@ public sealed class CommunityRepository : ICommunityRepository
         }
 
         // TODO: Add a unique index on Community.EnterCode to avoid ambiguous joins.
-        var community = await dbContext.Communities
+        var community = await _dbContext.Communities
             .FirstOrDefaultAsync(c =>
                 c.EnterCode == normalizedEnterCode
                 && c.EnterCodeExpiresAt > DateTime.UtcNow);
         if (community is null)
         {
-            var exists = await dbContext.Communities
+            var exists = await _dbContext.Communities
                 .AnyAsync(c => c.EnterCode == normalizedEnterCode);
             return exists
                 ? RepositoryResult<Membership>.Failure(ApiErrors.Invalid("EnterCode has expired."))
                 : RepositoryResult<Membership>.Failure(ApiErrors.Invalid("EnterCode is invalid."));
         }
 
-        var existingMembership = await dbContext.Memberships.AnyAsync(membership =>
+        var existingMembership = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == community.Id
             && membership.UserId == actorUserId);
         if (existingMembership)
@@ -171,14 +180,14 @@ public sealed class CommunityRepository : ICommunityRepository
             JoinedAt = DateTime.UtcNow
         };
 
-        dbContext.Memberships.Add(member);
+        _dbContext.Memberships.Add(member);
         try
         {
-            await dbContext.SaveChangesAsync();
+            await _dbContext.SaveChangesAsync();
         }
         catch (DbUpdateException)
         {
-            var membershipExists = await dbContext.Memberships.AnyAsync(membership =>
+            var membershipExists = await _dbContext.Memberships.AnyAsync(membership =>
                 membership.CommunityId == community.Id
                 && membership.UserId == actorUserId);
             if (membershipExists)
@@ -192,28 +201,28 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<Membership>.Success(member);
     }
 
+
     public async Task<RepositoryResult<PagedResult<Request>>> GetRequestsFeedAsync(
         string id,
         string? status,
         int? page,
         int? pageSize,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Request>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == id);
         if (!communityExists)
         {
             return RepositoryResult<PagedResult<Request>>.Failure(ApiErrors.NotFound("Community"));
         }
 
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -242,7 +251,7 @@ public sealed class CommunityRepository : ICommunityRepository
                 ApiErrors.Invalid("Invalid pagination parameters."));
         }
 
-        var baseQuery = dbContext.Requests
+        var baseQuery = _dbContext.Requests
             .Where(request => request.CommunityId == id && request.Status == requestStatus);
 
         var total = await baseQuery.CountAsync();
@@ -258,28 +267,28 @@ public sealed class CommunityRepository : ICommunityRepository
             new PagedResult<Request>(items, pageNumber, size, total));
     }
 
+
     public async Task<RepositoryResult<PagedResult<Item>>> GetAvailableItemsAsync(
         string id,
         string? category,
         int? page,
         int? pageSize,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Item>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == id);
         if (!communityExists)
         {
             return RepositoryResult<PagedResult<Item>>.Failure(ApiErrors.NotFound("Community"));
         }
 
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -298,7 +307,7 @@ public sealed class CommunityRepository : ICommunityRepository
         }
 
         var normalizedCategory = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
-        var baseQuery = dbContext.Items
+        var baseQuery = _dbContext.Items
             .Where(item => item.CommunityId == id && item.Status == ItemStatus.Available);
 
         if (!string.IsNullOrWhiteSpace(normalizedCategory))
@@ -318,12 +327,12 @@ public sealed class CommunityRepository : ICommunityRepository
             new PagedResult<Item>(items, pageNumber, size, total));
     }
 
+
     public async Task<RepositoryResult<Community>> CreateAsync(
         Community body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
@@ -336,7 +345,7 @@ public sealed class CommunityRepository : ICommunityRepository
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Required(nameof(body.Slug)));
         }
-        var creatorExists = await dbContext.Users
+        var creatorExists = await _dbContext.Users
             .AnyAsync(user => user.Id == actorUserId);
         if (!creatorExists)
         {
@@ -352,8 +361,8 @@ public sealed class CommunityRepository : ICommunityRepository
         body.EnterCodeExpiresAt = CreateEnterCodeExpiry();
         body.CreatedAt = now;
 
-        dbContext.Communities.Add(body);
-        dbContext.Memberships.Add(new Membership
+        _dbContext.Communities.Add(body);
+        _dbContext.Memberships.Add(new Membership
         {
             Id = Guid.NewGuid().ToString(),
             UserId = actorUserId,
@@ -363,16 +372,15 @@ public sealed class CommunityRepository : ICommunityRepository
             CreatedAt = now,
             JoinedAt = now
         });
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Community>.Success(body);
     }
 
-    private static async Task<RepositoryResult<Community>> EnsureCommunityMemberAsync(
+    private async Task<RepositoryResult<Community>> EnsureCommunityMemberAsync(
         Community community,
-        string actorUserId,
-        CondivaDbContext dbContext)
+        string actorUserId)
     {
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == community.Id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -385,23 +393,23 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<Community>.Success(community);
     }
 
+
     public async Task<RepositoryResult<Community>> UpdateAsync(
         string id,
         Community body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
         }
-        var community = await dbContext.Communities.FindAsync(id);
+        var community = await _dbContext.Communities.FindAsync(id);
         if (community is null)
         {
             return RepositoryResult<Community>.Failure(ApiErrors.NotFound("Community"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -422,26 +430,26 @@ public sealed class CommunityRepository : ICommunityRepository
         community.Slug = body.Slug;
         community.Description = body.Description;
 
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Community>.Success(community);
     }
 
+
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
         }
-        var community = await dbContext.Communities.FindAsync(id);
+        var community = await _dbContext.Communities.FindAsync(id);
         if (community is null)
         {
             return RepositoryResult<bool>.Failure(ApiErrors.NotFound("Community"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -452,8 +460,8 @@ public sealed class CommunityRepository : ICommunityRepository
         }
 
         // TODO: Ensure cascading delete or explicit cleanup for related entities.
-        dbContext.Communities.Remove(community);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Communities.Remove(community);
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<bool>.Success(true);
     }
 

@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Mapping;
+﻿using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Reputations.Dtos;
 using Condiva.Api.Features.Reputations.Models;
@@ -21,10 +21,9 @@ public static class ReputationsEndpoints
             string communityId,
             ClaimsPrincipal user,
             IReputationRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetMineAsync(communityId, user, dbContext);
+            var result = await repository.GetMineAsync(communityId, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -39,10 +38,9 @@ public static class ReputationsEndpoints
             string userId,
             ClaimsPrincipal user,
             IReputationRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetForUserAsync(communityId, userId, user, dbContext);
+            var result = await repository.GetForUserAsync(communityId, userId, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

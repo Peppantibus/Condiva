@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Errors;
+﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Loans.Data;
 using Condiva.Api.Features.Loans.Dtos;
@@ -21,10 +21,9 @@ public static class LoansEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user, dbContext);
+            var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -39,10 +38,9 @@ public static class LoansEndpoints
             string id,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetByIdAsync(id, user, dbContext);
+            var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -56,8 +54,7 @@ public static class LoansEndpoints
             CreateLoanRequestDto body,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -81,7 +78,7 @@ public static class LoansEndpoints
                 DueAt = body.DueAt
             };
 
-            var result = await repository.CreateAsync(model, user, dbContext);
+            var result = await repository.CreateAsync(model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -96,8 +93,7 @@ public static class LoansEndpoints
             UpdateLoanRequestDto body,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -122,7 +118,7 @@ public static class LoansEndpoints
                 ReturnedAt = body.ReturnedAt
             };
 
-            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            var result = await repository.UpdateAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -135,10 +131,9 @@ public static class LoansEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            ILoanRepository repository,
-            CondivaDbContext dbContext) =>
+            ILoanRepository repository) =>
         {
-            var result = await repository.DeleteAsync(id, user, dbContext);
+            var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -151,10 +146,9 @@ public static class LoansEndpoints
             string id,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.StartAsync(id, user, dbContext);
+            var result = await repository.StartAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -168,10 +162,9 @@ public static class LoansEndpoints
             string id,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.ReturnAsync(id, user, dbContext);
+            var result = await repository.ReturnAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Dtos;
+﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Loans.Dtos;
@@ -24,10 +24,9 @@ public static class OffersEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user, dbContext);
+            var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -42,10 +41,9 @@ public static class OffersEndpoints
             string id,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetByIdAsync(id, user, dbContext);
+            var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -62,10 +60,9 @@ public static class OffersEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetMineAsync(communityId, status, page, pageSize, user, dbContext);
+            var result = await repository.GetMineAsync(communityId, status, page, pageSize, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -84,8 +81,7 @@ public static class OffersEndpoints
             CreateOfferRequestDto body,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -106,7 +102,7 @@ public static class OffersEndpoints
                 Status = statusValue
             };
 
-            var result = await repository.CreateAsync(model, user, dbContext);
+            var result = await repository.CreateAsync(model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -121,8 +117,7 @@ public static class OffersEndpoints
             UpdateOfferRequestDto body,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -143,7 +138,7 @@ public static class OffersEndpoints
                 Status = statusValue
             };
 
-            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            var result = await repository.UpdateAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -156,10 +151,9 @@ public static class OffersEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            IOfferRepository repository,
-            CondivaDbContext dbContext) =>
+            IOfferRepository repository) =>
         {
-            var result = await repository.DeleteAsync(id, user, dbContext);
+            var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -173,12 +167,11 @@ public static class OffersEndpoints
             AcceptOfferRequestDto body,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var model = new AcceptOfferRequest(body.BorrowerUserId);
 
-            var result = await repository.AcceptAsync(id, model, user, dbContext);
+            var result = await repository.AcceptAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -192,10 +185,9 @@ public static class OffersEndpoints
             string id,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.RejectAsync(id, user, dbContext);
+            var result = await repository.RejectAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -209,10 +201,9 @@ public static class OffersEndpoints
             string id,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.WithdrawAsync(id, user, dbContext);
+            var result = await repository.WithdrawAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

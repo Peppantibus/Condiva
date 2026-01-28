@@ -73,6 +73,8 @@ public static class AuthEndpoints
 
                     if (autoVerify)
                     {
+                        user.EmailVerified = true;
+                        await repository.UpdateUserAsync(user);
                         await repository.RemoveEmailVerifiedTokensByUserIdAsync(user.Id);
                         await repository.SaveChangesAsync();
                     }
@@ -139,7 +141,7 @@ public static class AuthEndpoints
         group.MapPost("/refresh",
                 async (RefreshTokenRequest body, ITokenService<User> tokens) =>
                 {
-                    var refreshToken = Normalize(body.RefreshToken);
+                    var refreshToken = Normalize(body.RefreshToken ?? body.Token);
                     var validationError = ValidateToken(refreshToken);
                     if (validationError is not null)
                     {
@@ -153,13 +155,6 @@ public static class AuthEndpoints
                 });
 
         return endpoints;
-    }
-
-    private static IResult MapResult(Result result, AuthErrorKind errorKind)
-    {
-        return result.IsSuccess
-            ? HttpResults.Ok()
-            : ErrorResult(errorKind, result.Error ?? "Operation failed.");
     }
 
     private static IResult MapResult<T>(Result<T> result, AuthErrorKind errorKind)
@@ -176,7 +171,7 @@ public static class AuthEndpoints
 
         return kind switch
         {
-            AuthErrorKind.InvalidCredentials => HttpResults.Json(payload, statusCode: StatusCodes.Status401Unauthorized),
+            AuthErrorKind.InvalidCredentials => HttpResults.BadRequest(payload),
             AuthErrorKind.InvalidRefreshToken => HttpResults.Json(payload, statusCode: StatusCodes.Status401Unauthorized),
             AuthErrorKind.Conflict => HttpResults.Conflict(payload),
             AuthErrorKind.Validation => HttpResults.BadRequest(payload),
@@ -316,5 +311,5 @@ public static class AuthEndpoints
     public sealed record RegisterRequest(string Username, string Email, string Password, string Name, string LastName);
     public sealed record RecoveryRequest(string Email);
     public sealed record ResendVerificationRequest(string Email);
-    public sealed record RefreshTokenRequest(string RefreshToken);
+    public sealed record RefreshTokenRequest(string? RefreshToken, string? Token);
 }

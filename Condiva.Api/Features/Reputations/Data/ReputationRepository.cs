@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Auth;
+﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Reputations.Models;
@@ -9,47 +9,54 @@ namespace Condiva.Api.Features.Reputations.Data;
 
 public sealed class ReputationRepository : IReputationRepository
 {
+    private readonly CondivaDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
+
+    public ReputationRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    {
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
+
     public async Task<RepositoryResult<ReputationSnapshot>> GetMineAsync(
         string communityId,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Unauthorized());
         }
 
-        return await GetReputation(communityId, actorUserId, actorUserId, dbContext);
+        return await GetReputation(communityId, actorUserId, actorUserId);
     }
+
 
     public async Task<RepositoryResult<ReputationSnapshot>> GetForUserAsync(
         string communityId,
         string userId,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Unauthorized());
         }
 
-        return await GetReputation(communityId, userId, actorUserId, dbContext);
+        return await GetReputation(communityId, userId, actorUserId);
     }
 
-    private static async Task<RepositoryResult<ReputationSnapshot>> GetReputation(
+    private async Task<RepositoryResult<ReputationSnapshot>> GetReputation(
         string communityId,
         string targetUserId,
-        string actorUserId,
-        CondivaDbContext dbContext)
+        string actorUserId)
     {
         if (string.IsNullOrWhiteSpace(communityId))
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Required(nameof(communityId)));
         }
 
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == communityId);
         if (!communityExists)
         {
@@ -57,7 +64,7 @@ public sealed class ReputationRepository : IReputationRepository
                 ApiErrors.Invalid("CommunityId does not exist."));
         }
 
-        var actorIsMember = await dbContext.Memberships.AnyAsync(membership =>
+        var actorIsMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == actorUserId
             && membership.Status == Features.Memberships.Models.MembershipStatus.Active);
@@ -67,14 +74,14 @@ public sealed class ReputationRepository : IReputationRepository
                 ApiErrors.Invalid("ActorUserId is not a member of the community."));
         }
 
-        var targetExists = await dbContext.Users
+        var targetExists = await _dbContext.Users
             .AnyAsync(user => user.Id == targetUserId);
         if (!targetExists)
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Invalid("UserId does not exist."));
         }
 
-        var targetIsMember = await dbContext.Memberships.AnyAsync(membership =>
+        var targetIsMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == targetUserId
             && membership.Status == Features.Memberships.Models.MembershipStatus.Active);
@@ -84,13 +91,13 @@ public sealed class ReputationRepository : IReputationRepository
                 ApiErrors.Invalid("UserId is not a member of the community."));
         }
 
-        var reputation = await dbContext.Reputations
+        var reputation = await _dbContext.Reputations
             .FirstOrDefaultAsync(profile =>
                 profile.CommunityId == communityId && profile.UserId == targetUserId);
 
         if (reputation is null)
         {
-            reputation = await ComputeAndStoreReputation(communityId, targetUserId, dbContext);
+            reputation = await ComputeAndStoreReputation(communityId, targetUserId);
         }
 
         return RepositoryResult<ReputationSnapshot>.Success(new ReputationSnapshot(
@@ -102,22 +109,21 @@ public sealed class ReputationRepository : IReputationRepository
             reputation.OnTimeReturnCount));
     }
 
-    private static async Task<ReputationProfile> ComputeAndStoreReputation(
+    private async Task<ReputationProfile> ComputeAndStoreReputation(
         string communityId,
-        string userId,
-        CondivaDbContext dbContext)
+        string userId)
     {
-        var lendsReturned = await dbContext.Loans.CountAsync(loan =>
+        var lendsReturned = await _dbContext.Loans.CountAsync(loan =>
             loan.CommunityId == communityId
             && loan.LenderUserId == userId
             && loan.Status == Features.Loans.Models.LoanStatus.Returned);
 
-        var returnsReturned = await dbContext.Loans.CountAsync(loan =>
+        var returnsReturned = await _dbContext.Loans.CountAsync(loan =>
             loan.CommunityId == communityId
             && loan.BorrowerUserId == userId
             && loan.Status == Features.Loans.Models.LoanStatus.Returned);
 
-        var returnsOnTime = await dbContext.Loans.CountAsync(loan =>
+        var returnsOnTime = await _dbContext.Loans.CountAsync(loan =>
             loan.CommunityId == communityId
             && loan.BorrowerUserId == userId
             && loan.Status == Features.Loans.Models.LoanStatus.Returned
@@ -141,8 +147,8 @@ public sealed class ReputationRepository : IReputationRepository
             UpdatedAt = DateTime.UtcNow
         };
 
-        dbContext.Reputations.Add(reputation);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Reputations.Add(reputation);
+        await _dbContext.SaveChangesAsync();
 
         return reputation;
     }

@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Results;
+﻿using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Items.Models;
 using System.Security.Claims;
 
@@ -8,20 +8,16 @@ public interface IItemRepository
 {
     Task<RepositoryResult<IReadOnlyList<Item>>> GetAllAsync(
         string communityId,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
+        ClaimsPrincipal user);
     Task<RepositoryResult<Item>> GetByIdAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
-    Task<RepositoryResult<Item>> CreateAsync(Item body, ClaimsPrincipal user, CondivaDbContext dbContext);
+        ClaimsPrincipal user);
+    Task<RepositoryResult<Item>> CreateAsync(Item body, ClaimsPrincipal user);
     Task<RepositoryResult<Item>> UpdateAsync(
         string id,
         Item body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
+        ClaimsPrincipal user);
     Task<RepositoryResult<bool>> DeleteAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext);
+        ClaimsPrincipal user);
 }

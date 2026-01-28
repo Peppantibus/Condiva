@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Errors;
+﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
@@ -23,10 +23,9 @@ public static class MembershipsEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user, dbContext);
+            var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -40,10 +39,9 @@ public static class MembershipsEndpoints
         group.MapGet("/me/communities", async (
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetMyCommunitiesAsync(user, dbContext);
+            var result = await repository.GetMyCommunitiesAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -58,10 +56,9 @@ public static class MembershipsEndpoints
             string id,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetByIdAsync(id, user, dbContext);
+            var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -75,15 +72,14 @@ public static class MembershipsEndpoints
             CreateMembershipRequestDto body,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var model = new Membership
             {
                 CommunityId = body.CommunityId
             };
 
-            var result = await repository.CreateAsync(model, body.EnterCode, user, dbContext);
+            var result = await repository.CreateAsync(model, body.EnterCode, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -98,8 +94,7 @@ public static class MembershipsEndpoints
             UpdateMembershipRequestDto body,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Role))
             {
@@ -128,7 +123,7 @@ public static class MembershipsEndpoints
                 JoinedAt = body.JoinedAt
             };
 
-            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            var result = await repository.UpdateAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -143,12 +138,11 @@ public static class MembershipsEndpoints
             UpdateMembershipRoleRequestDto body,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var model = new UpdateMembershipRoleRequest(body.Role);
 
-            var result = await repository.UpdateRoleAsync(id, model, user, dbContext);
+            var result = await repository.UpdateRoleAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -161,10 +155,9 @@ public static class MembershipsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            IMembershipRepository repository,
-            CondivaDbContext dbContext) =>
+            IMembershipRepository repository) =>
         {
-            var result = await repository.DeleteAsync(id, user, dbContext);
+            var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -176,10 +169,9 @@ public static class MembershipsEndpoints
         group.MapPost("/leave/{communityId}", async (
             string communityId,
             ClaimsPrincipal user,
-            IMembershipRepository repository,
-            CondivaDbContext dbContext) =>
+            IMembershipRepository repository) =>
         {
-            var result = await repository.LeaveAsync(communityId, user, dbContext);
+            var result = await repository.LeaveAsync(communityId, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Auth;
+﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Events.Models;
@@ -14,20 +14,28 @@ namespace Condiva.Api.Features.Offers.Data;
 
 public sealed class OfferRepository : IOfferRepository
 {
-    public async Task<RepositoryResult<IReadOnlyList<Offer>>> GetAllAsync(
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+    private readonly CondivaDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
+
+    public OfferRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
+
+    public async Task<RepositoryResult<IReadOnlyList<Offer>>> GetAllAsync(
+        ClaimsPrincipal user)
+    {
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Offer>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var offers = await dbContext.Offers
+        var offers = await _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
-            .Where(offer => dbContext.Memberships.Any(membership =>
+            .Where(offer => _dbContext.Memberships.Any(membership =>
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active
                 && membership.CommunityId == offer.CommunityId))
@@ -35,35 +43,35 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<IReadOnlyList<Offer>>.Success(offers);
     }
 
+
     public async Task<RepositoryResult<Offer>> GetByIdAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
         }
 
-        var offer = await dbContext.Offers
+        var offer = await _dbContext.Offers
             .Include(item => item.Community)
             .Include(item => item.OffererUser)
             .FirstOrDefaultAsync(item => item.Id == id);
         return offer is null
             ? RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"))
-            : await EnsureCommunityMemberAsync(offer.CommunityId, actorUserId, dbContext, offer);
+            : await EnsureCommunityMemberAsync(offer.CommunityId, actorUserId, offer);
     }
+
 
     public async Task<RepositoryResult<PagedResult<Offer>>> GetMineAsync(
         string? communityId,
         string? status,
         int? page,
         int? pageSize,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Offer>>.Failure(ApiErrors.Unauthorized());
@@ -77,7 +85,7 @@ public sealed class OfferRepository : IOfferRepository
                 ApiErrors.Invalid("Invalid pagination parameters."));
         }
 
-        var query = dbContext.Offers
+        var query = _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
             .AsQueryable()
@@ -109,12 +117,12 @@ public sealed class OfferRepository : IOfferRepository
             new PagedResult<Offer>(items, pageNumber, size, total));
     }
 
+
     public async Task<RepositoryResult<Offer>> CreateAsync(
         Offer body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
@@ -140,19 +148,19 @@ public sealed class OfferRepository : IOfferRepository
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Status must be Open on create."));
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var offererExists = await dbContext.Users
+        var offererExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.OffererUserId);
         if (!offererExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("OffererUserId does not exist."));
         }
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.OffererUserId
             && membership.Status == MembershipStatus.Active);
@@ -161,7 +169,7 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Offer>.Failure(
                 ApiErrors.Invalid("OffererUserId is not a member of the community."));
         }
-        var item = await dbContext.Items.FindAsync(body.ItemId);
+        var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("ItemId does not exist."));
@@ -177,7 +185,7 @@ public sealed class OfferRepository : IOfferRepository
         }
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(body.RequestId);
+            var request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("RequestId does not exist."));
@@ -199,9 +207,9 @@ public sealed class OfferRepository : IOfferRepository
         }
         body.CreatedAt = DateTime.UtcNow;
 
-        dbContext.Offers.Add(body);
-        await dbContext.SaveChangesAsync();
-        var createdOffer = await dbContext.Offers
+        _dbContext.Offers.Add(body);
+        await _dbContext.SaveChangesAsync();
+        var createdOffer = await _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
             .FirstOrDefaultAsync(offer => offer.Id == body.Id);
@@ -209,23 +217,23 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Offer>.Success(createdOffer ?? body);
     }
 
+
     public async Task<RepositoryResult<Offer>> UpdateAsync(
         string id,
         Offer body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
         }
-        var offer = await dbContext.Offers.FindAsync(id);
+        var offer = await _dbContext.Offers.FindAsync(id);
         if (offer is null)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -267,19 +275,19 @@ public sealed class OfferRepository : IOfferRepository
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Status cannot be changed via update."));
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var offererExists = await dbContext.Users
+        var offererExists = await _dbContext.Users
             .AnyAsync(user => user.Id == body.OffererUserId);
         if (!offererExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("OffererUserId does not exist."));
         }
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == body.OffererUserId
             && membership.Status == MembershipStatus.Active);
@@ -288,7 +296,7 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Offer>.Failure(
                 ApiErrors.Invalid("OffererUserId is not a member of the community."));
         }
-        var item = await dbContext.Items.FindAsync(body.ItemId);
+        var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("ItemId does not exist."));
@@ -304,7 +312,7 @@ public sealed class OfferRepository : IOfferRepository
         }
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(body.RequestId);
+            var request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("RequestId does not exist."));
@@ -328,8 +336,8 @@ public sealed class OfferRepository : IOfferRepository
         offer.Message = body.Message;
         offer.Status = body.Status;
 
-        await dbContext.SaveChangesAsync();
-        var updatedOffer = await dbContext.Offers
+        await _dbContext.SaveChangesAsync();
+        var updatedOffer = await _dbContext.Offers
             .Include(foundOffer => foundOffer.Community)
             .Include(foundOffer => foundOffer.OffererUser)
             .FirstOrDefaultAsync(foundOffer => foundOffer.Id == offer.Id);
@@ -337,22 +345,22 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Offer>.Success(updatedOffer ?? offer);
     }
 
+
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
         }
-        var offer = await dbContext.Offers.FindAsync(id);
+        var offer = await _dbContext.Offers.FindAsync(id);
         if (offer is null)
         {
             return RepositoryResult<bool>.Failure(ApiErrors.NotFound("Offer"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -374,23 +382,23 @@ public sealed class OfferRepository : IOfferRepository
                 ApiErrors.Invalid("Offer cannot be deleted unless open."));
         }
 
-        dbContext.Offers.Remove(offer);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Offers.Remove(offer);
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<bool>.Success(true);
     }
+
 
     public async Task<RepositoryResult<Loan>> AcceptAsync(
         string id,
         AcceptOfferRequest body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
-        var offer = await dbContext.Offers.FindAsync(id);
+        var offer = await _dbContext.Offers.FindAsync(id);
         if (offer is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Offer"));
@@ -399,7 +407,7 @@ public sealed class OfferRepository : IOfferRepository
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Offer is not open."));
         }
-        var item = await dbContext.Items.FindAsync(offer.ItemId);
+        var item = await _dbContext.Items.FindAsync(offer.ItemId);
         if (item is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Offer item does not exist."));
@@ -409,7 +417,7 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Item is not available."));
         }
 
-        var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
@@ -419,7 +427,7 @@ public sealed class OfferRepository : IOfferRepository
         Request? request = null;
         if (!string.IsNullOrWhiteSpace(offer.RequestId))
         {
-            request = await dbContext.Requests.FindAsync(offer.RequestId);
+            request = await _dbContext.Requests.FindAsync(offer.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Request does not exist."));
@@ -449,7 +457,7 @@ public sealed class OfferRepository : IOfferRepository
             borrowerUserId = body.BorrowerUserId;
         }
 
-        var lenderMember = await dbContext.Memberships.AnyAsync(membership =>
+        var lenderMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == offer.OffererUserId
             && membership.Status == MembershipStatus.Active);
@@ -458,7 +466,7 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Invalid("OffererUserId is not a member of the community."));
         }
-        var borrowerMember = await dbContext.Memberships.AnyAsync(membership =>
+        var borrowerMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == borrowerUserId
             && membership.Status == MembershipStatus.Active);
@@ -468,7 +476,7 @@ public sealed class OfferRepository : IOfferRepository
                 ApiErrors.Invalid("BorrowerUserId is not a member of the community."));
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
 
         offer.Status = OfferStatus.Accepted;
         item.Status = ItemStatus.Reserved;
@@ -506,35 +514,35 @@ public sealed class OfferRepository : IOfferRepository
             events.Add(CreateEvent(offer.CommunityId, actorUserId, "Request", request.Id, "RequestAccepted", now));
         }
 
-        dbContext.Loans.Add(loan);
-        dbContext.Events.AddRange(events);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Loans.Add(loan);
+        _dbContext.Events.AddRange(events);
+        await _dbContext.SaveChangesAsync();
         await transaction.CommitAsync();
 
         return RepositoryResult<Loan>.Success(loan);
     }
 
+
     public async Task<RepositoryResult<Offer>> RejectAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
         }
-        var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
-        var offer = await dbContext.Offers.FindAsync(id);
+        var offer = await _dbContext.Offers.FindAsync(id);
         if (offer is null)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -550,7 +558,7 @@ public sealed class OfferRepository : IOfferRepository
         var canManage = CanManageCommunity(membership);
         if (!string.IsNullOrWhiteSpace(offer.RequestId))
         {
-            var request = await dbContext.Requests.FindAsync(offer.RequestId);
+            var request = await _dbContext.Requests.FindAsync(offer.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Request does not exist."));
@@ -570,38 +578,38 @@ public sealed class OfferRepository : IOfferRepository
         }
 
         offer.Status = OfferStatus.Rejected;
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             offer.CommunityId,
             actorUserId,
             "Offer",
             offer.Id,
             "OfferRejected",
             DateTime.UtcNow));
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Offer>.Success(offer);
     }
 
+
     public async Task<RepositoryResult<Offer>> WithdrawAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
         }
-        var actorExists = await dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
-        var offer = await dbContext.Offers.FindAsync(id);
+        var offer = await _dbContext.Offers.FindAsync(id);
         if (offer is null)
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == offer.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -623,14 +631,14 @@ public sealed class OfferRepository : IOfferRepository
         }
 
         offer.Status = OfferStatus.Withdrawn;
-        dbContext.Events.Add(CreateEvent(
+        _dbContext.Events.Add(CreateEvent(
             offer.CommunityId,
             actorUserId,
             "Offer",
             offer.Id,
             "OfferWithdrawn",
             DateTime.UtcNow));
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Offer>.Success(offer);
     }
 
@@ -640,13 +648,12 @@ public sealed class OfferRepository : IOfferRepository
             || membership.Role == MembershipRole.Moderator;
     }
 
-    private static async Task<RepositoryResult<Offer>> EnsureCommunityMemberAsync(
+    private async Task<RepositoryResult<Offer>> EnsureCommunityMemberAsync(
         string communityId,
         string actorUserId,
-        CondivaDbContext dbContext,
         Offer offer)
     {
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);

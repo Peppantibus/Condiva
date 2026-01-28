@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Errors;
+﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Items.Data;
 using Condiva.Api.Features.Items.Dtos;
@@ -22,15 +22,14 @@ public static class ItemsEndpoints
             string? communityId,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(communityId))
             {
                 return ApiErrors.Required(nameof(communityId));
             }
 
-            var result = await repository.GetAllAsync(communityId, user, dbContext);
+            var result = await repository.GetAllAsync(communityId, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -45,10 +44,9 @@ public static class ItemsEndpoints
             string id,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetByIdAsync(id, user, dbContext);
+            var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -62,8 +60,7 @@ public static class ItemsEndpoints
             CreateItemRequestDto body,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -84,7 +81,7 @@ public static class ItemsEndpoints
                 Status = status
             };
 
-            var result = await repository.CreateAsync(model, user, dbContext);
+            var result = await repository.CreateAsync(model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -99,8 +96,7 @@ public static class ItemsEndpoints
             UpdateItemRequestDto body,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -121,7 +117,7 @@ public static class ItemsEndpoints
                 Status = status
             };
 
-            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            var result = await repository.UpdateAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -134,10 +130,9 @@ public static class ItemsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            IItemRepository repository,
-            CondivaDbContext dbContext) =>
+            IItemRepository repository) =>
         {
-            var result = await repository.DeleteAsync(id, user, dbContext);
+            var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Auth;
+﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Events.Models;
@@ -10,19 +10,27 @@ namespace Condiva.Api.Features.Events.Data;
 
 public sealed class EventRepository : IEventRepository
 {
-    public async Task<RepositoryResult<IReadOnlyList<Event>>> GetAllAsync(
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+    private readonly CondivaDbContext _dbContext;
+    private readonly ICurrentUser _currentUser;
+
+    public EventRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        _dbContext = dbContext;
+        _currentUser = currentUser;
+    }
+
+    public async Task<RepositoryResult<IReadOnlyList<Event>>> GetAllAsync(
+        ClaimsPrincipal user)
+    {
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Event>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var events = await dbContext.Events
+        var events = await _dbContext.Events
             .Join(
-                dbContext.Memberships.Where(membership =>
+                _dbContext.Memberships.Where(membership =>
                     membership.UserId == actorUserId
                     && membership.Status == MembershipStatus.Active),
                 evt => evt.CommunityId,
@@ -33,29 +41,29 @@ public sealed class EventRepository : IEventRepository
         return RepositoryResult<IReadOnlyList<Event>>.Success(events);
     }
 
+
     public async Task<RepositoryResult<Event>> GetByIdAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
         }
 
-        var evt = await dbContext.Events.FindAsync(id);
+        var evt = await _dbContext.Events.FindAsync(id);
         return evt is null
             ? RepositoryResult<Event>.Failure(ApiErrors.NotFound("Event"))
-            : await EnsureCommunityMemberAsync(evt.CommunityId, actorUserId, dbContext, evt);
+            : await EnsureCommunityMemberAsync(evt.CommunityId, actorUserId, evt);
     }
+
 
     public async Task<RepositoryResult<Event>> CreateAsync(
         Event body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
@@ -76,13 +84,13 @@ public sealed class EventRepository : IEventRepository
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Required(nameof(body.Action)));
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -96,7 +104,7 @@ public sealed class EventRepository : IEventRepository
             return RepositoryResult<Event>.Failure(
                 ApiErrors.Invalid("User is not allowed to create the event."));
         }
-        var actorExists = await dbContext.Users
+        var actorExists = await _dbContext.Users
             .AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
@@ -109,23 +117,23 @@ public sealed class EventRepository : IEventRepository
         body.CreatedAt = DateTime.UtcNow;
         body.ActorUserId = actorUserId;
 
-        dbContext.Events.Add(body);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Events.Add(body);
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Event>.Success(body);
     }
+
 
     public async Task<RepositoryResult<Event>> UpdateAsync(
         string id,
         Event body,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
         }
-        var evt = await dbContext.Events.FindAsync(id);
+        var evt = await _dbContext.Events.FindAsync(id);
         if (evt is null)
         {
             return RepositoryResult<Event>.Failure(ApiErrors.NotFound("Event"));
@@ -150,13 +158,13 @@ public sealed class EventRepository : IEventRepository
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Required(nameof(body.Action)));
         }
-        var communityExists = await dbContext.Communities
+        var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Invalid("CommunityId does not exist."));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == body.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -170,7 +178,7 @@ public sealed class EventRepository : IEventRepository
             return RepositoryResult<Event>.Failure(
                 ApiErrors.Invalid("User is not allowed to update the event."));
         }
-        var actorExists = await dbContext.Users
+        var actorExists = await _dbContext.Users
             .AnyAsync(user => user.Id == actorUserId);
         if (!actorExists)
         {
@@ -184,26 +192,26 @@ public sealed class EventRepository : IEventRepository
         evt.Action = body.Action;
         evt.Payload = body.Payload;
 
-        await dbContext.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<Event>.Success(evt);
     }
 
+
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
-        ClaimsPrincipal user,
-        CondivaDbContext dbContext)
+        ClaimsPrincipal user)
     {
-        var actorUserId = CurrentUser.GetUserId(user);
+        var actorUserId = _currentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
         }
-        var evt = await dbContext.Events.FindAsync(id);
+        var evt = await _dbContext.Events.FindAsync(id);
         if (evt is null)
         {
             return RepositoryResult<bool>.Failure(ApiErrors.NotFound("Event"));
         }
-        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
             membership.CommunityId == evt.CommunityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
@@ -218,8 +226,8 @@ public sealed class EventRepository : IEventRepository
                 ApiErrors.Invalid("User is not allowed to delete the event."));
         }
 
-        dbContext.Events.Remove(evt);
-        await dbContext.SaveChangesAsync();
+        _dbContext.Events.Remove(evt);
+        await _dbContext.SaveChangesAsync();
         return RepositoryResult<bool>.Success(true);
     }
 
@@ -229,13 +237,12 @@ public sealed class EventRepository : IEventRepository
             || membership.Role == MembershipRole.Moderator;
     }
 
-    private static async Task<RepositoryResult<Event>> EnsureCommunityMemberAsync(
+    private async Task<RepositoryResult<Event>> EnsureCommunityMemberAsync(
         string communityId,
         string actorUserId,
-        CondivaDbContext dbContext,
         Event evt)
     {
-        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);

@@ -589,7 +589,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         await SeedItemAsync(otherCommunityId, "items-list-owner-2");
 
         using var client = CreateClientWithToken(memberId);
-        var response = await client.GetAsync("/api/items");
+        var response = await client.GetAsync($"/api/items?communityId={communityId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var payload = await response.Content.ReadFromJsonAsync<List<ItemListItemDto>>();

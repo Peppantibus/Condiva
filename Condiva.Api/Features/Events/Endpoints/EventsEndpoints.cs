@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Mapping;
+﻿using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Events.Data;
 using Condiva.Api.Features.Events.Dtos;
 using Condiva.Api.Features.Events.Models;
@@ -20,10 +20,9 @@ public static class EventsEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user, dbContext);
+            var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -38,10 +37,9 @@ public static class EventsEndpoints
             string id,
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetByIdAsync(id, user, dbContext);
+            var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -55,8 +53,7 @@ public static class EventsEndpoints
             CreateEventRequestDto body,
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var model = new Event
             {
@@ -67,7 +64,7 @@ public static class EventsEndpoints
                 Payload = body.Payload
             };
 
-            var result = await repository.CreateAsync(model, user, dbContext);
+            var result = await repository.CreateAsync(model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -82,8 +79,7 @@ public static class EventsEndpoints
             UpdateEventRequestDto body,
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var model = new Event
             {
@@ -94,7 +90,7 @@ public static class EventsEndpoints
                 Payload = body.Payload
             };
 
-            var result = await repository.UpdateAsync(id, model, user, dbContext);
+            var result = await repository.UpdateAsync(id, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -107,10 +103,9 @@ public static class EventsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            IEventRepository repository,
-            CondivaDbContext dbContext) =>
+            IEventRepository repository) =>
         {
-            var result = await repository.DeleteAsync(id, user, dbContext);
+            var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

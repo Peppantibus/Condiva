@@ -32,10 +32,9 @@ public static class CommunitiesEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user, dbContext);
+            var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -50,8 +49,7 @@ public static class CommunitiesEndpoints
             string id,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -60,7 +58,7 @@ public static class CommunitiesEndpoints
                 return idError;
             }
 
-            var result = await repository.GetByIdAsync(normalizedId!, user, dbContext);
+            var result = await repository.GetByIdAsync(normalizedId!, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -74,8 +72,7 @@ public static class CommunitiesEndpoints
             string id,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -84,7 +81,7 @@ public static class CommunitiesEndpoints
                 return idError;
             }
 
-            var result = await repository.GetInviteCodeAsync(normalizedId!, user, dbContext);
+            var result = await repository.GetInviteCodeAsync(normalizedId!, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -98,8 +95,7 @@ public static class CommunitiesEndpoints
             string id,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -108,7 +104,7 @@ public static class CommunitiesEndpoints
                 return idError;
             }
 
-            var result = await repository.RotateInviteCodeAsync(normalizedId!, user, dbContext);
+            var result = await repository.RotateInviteCodeAsync(normalizedId!, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -122,8 +118,7 @@ public static class CommunitiesEndpoints
             JoinCommunityRequestDto body,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var inviteCode = Normalize(body.EnterCode);
             if (string.IsNullOrWhiteSpace(inviteCode))
@@ -131,7 +126,7 @@ public static class CommunitiesEndpoints
                 return ApiErrors.Required(nameof(body.EnterCode));
             }
 
-            var result = await repository.JoinAsync(inviteCode, user, dbContext);
+            var result = await repository.JoinAsync(inviteCode, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -148,8 +143,7 @@ public static class CommunitiesEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -173,8 +167,7 @@ public static class CommunitiesEndpoints
                 normalizedStatus,
                 pageNumber,
                 size,
-                user,
-                dbContext);
+                user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -196,8 +189,7 @@ public static class CommunitiesEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -221,8 +213,7 @@ public static class CommunitiesEndpoints
                 normalizedCategory,
                 pageNumber,
                 size,
-                user,
-                dbContext);
+                user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -241,8 +232,7 @@ public static class CommunitiesEndpoints
             CreateCommunityRequestDto body,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
@@ -258,7 +248,7 @@ public static class CommunitiesEndpoints
                 CreatedByUserId = actorUserId
             };
 
-            var result = await repository.CreateAsync(model, user, dbContext);
+            var result = await repository.CreateAsync(model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -273,8 +263,7 @@ public static class CommunitiesEndpoints
             UpdateCommunityRequestDto body,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper,
-            CondivaDbContext dbContext) =>
+            IMapper mapper) =>
         {
             var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
@@ -296,7 +285,7 @@ public static class CommunitiesEndpoints
                 Description = body.Description
             };
 
-            var result = await repository.UpdateAsync(normalizedId!, model, user, dbContext);
+            var result = await repository.UpdateAsync(normalizedId!, model, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -309,8 +298,7 @@ public static class CommunitiesEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
-            ICommunityRepository repository,
-            CondivaDbContext dbContext) =>
+            ICommunityRepository repository) =>
         {
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
@@ -319,7 +307,7 @@ public static class CommunitiesEndpoints
                 return idError;
             }
 
-            var result = await repository.DeleteAsync(normalizedId!, user, dbContext);
+            var result = await repository.DeleteAsync(normalizedId!, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -333,12 +321,11 @@ public static class CommunitiesEndpoints
             ClaimsPrincipal user,
             ICommunityRepository repository,
             IMapper mapper,
-            CondivaDbContext dbContext,
             IConfiguration config,
             HttpContext http) =>
         {
             // Riusa la logica di permessi/recupero code già esistente
-            var result = await repository.GetInviteCodeAsync(id, user, dbContext);
+            var result = await repository.GetInviteCodeAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
