@@ -35,7 +35,8 @@ public static class OffersEndpoints
             var payload = mapper.MapList<Offer, OfferListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<OfferListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -51,7 +52,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<OfferDetailsDto>(StatusCodes.Status200OK);
 
         group.MapGet("/me", async (
             string? communityId,
@@ -75,7 +77,8 @@ public static class OffersEndpoints
                 result.Data.PageSize,
                 result.Data.Total);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<PagedResponseDto<OfferListItemDto>>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateOfferRequestDto body,
@@ -110,7 +113,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
             return Results.Created($"/api/offers/{payload.Id}", payload);
-        });
+        })
+            .Produces<OfferDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -146,7 +150,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<OfferDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -160,7 +165,8 @@ public static class OffersEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapPost("/{id}/accept", async (
             string id,
@@ -179,7 +185,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Created($"/api/loans/{payload.Id}", payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPost("/{id}/reject", async (
             string id,
@@ -195,7 +202,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Offer, OfferStatusResponseDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<OfferStatusResponseDto>(StatusCodes.Status200OK);
 
         group.MapPost("/{id}/withdraw", async (
             string id,
@@ -211,7 +219,8 @@ public static class OffersEndpoints
 
             var payload = mapper.Map<Offer, OfferStatusResponseDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<OfferStatusResponseDto>(StatusCodes.Status200OK);
 
         return endpoints;
     }

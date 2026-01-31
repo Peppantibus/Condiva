@@ -2,14 +2,9 @@ using System.Security.Claims;
 
 namespace Condiva.Api.Common.Auth;
 
-public interface ICurrentUser
+public static class CurrentUser
 {
-    string? GetUserId(ClaimsPrincipal user);
-}
-
-public sealed class CurrentUser : ICurrentUser
-{
-    public string? GetUserId(ClaimsPrincipal user)
+    public static string? GetUserId(ClaimsPrincipal user)
     {
         return user.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? user.FindFirst("sub")?.Value

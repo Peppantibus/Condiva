@@ -15,18 +15,16 @@ namespace Condiva.Api.Features.Offers.Data;
 public sealed class OfferRepository : IOfferRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public OfferRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public OfferRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Offer>>> GetAllAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Offer>>.Failure(ApiErrors.Unauthorized());
@@ -43,12 +41,11 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<IReadOnlyList<Offer>>.Success(offers);
     }
 
-
     public async Task<RepositoryResult<Offer>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
@@ -63,7 +60,6 @@ public sealed class OfferRepository : IOfferRepository
             : await EnsureCommunityMemberAsync(offer.CommunityId, actorUserId, offer);
     }
 
-
     public async Task<RepositoryResult<PagedResult<Offer>>> GetMineAsync(
         string? communityId,
         string? status,
@@ -71,7 +67,7 @@ public sealed class OfferRepository : IOfferRepository
         int? pageSize,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Offer>>.Failure(ApiErrors.Unauthorized());
@@ -117,12 +113,11 @@ public sealed class OfferRepository : IOfferRepository
             new PagedResult<Offer>(items, pageNumber, size, total));
     }
 
-
     public async Task<RepositoryResult<Offer>> CreateAsync(
         Offer body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
@@ -217,13 +212,12 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Offer>.Success(createdOffer ?? body);
     }
 
-
     public async Task<RepositoryResult<Offer>> UpdateAsync(
         string id,
         Offer body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
@@ -345,12 +339,11 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Offer>.Success(updatedOffer ?? offer);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
@@ -387,13 +380,12 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<bool>.Success(true);
     }
 
-
     public async Task<RepositoryResult<Loan>> AcceptAsync(
         string id,
         AcceptOfferRequest body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -522,12 +514,11 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Loan>.Success(loan);
     }
 
-
     public async Task<RepositoryResult<Offer>> RejectAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
@@ -589,12 +580,11 @@ public sealed class OfferRepository : IOfferRepository
         return RepositoryResult<Offer>.Success(offer);
     }
 
-
     public async Task<RepositoryResult<Offer>> WithdrawAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());

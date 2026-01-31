@@ -11,18 +11,16 @@ namespace Condiva.Api.Features.Events.Data;
 public sealed class EventRepository : IEventRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public EventRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public EventRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Event>>> GetAllAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Event>>.Failure(ApiErrors.Unauthorized());
@@ -41,12 +39,11 @@ public sealed class EventRepository : IEventRepository
         return RepositoryResult<IReadOnlyList<Event>>.Success(events);
     }
 
-
     public async Task<RepositoryResult<Event>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
@@ -58,12 +55,11 @@ public sealed class EventRepository : IEventRepository
             : await EnsureCommunityMemberAsync(evt.CommunityId, actorUserId, evt);
     }
 
-
     public async Task<RepositoryResult<Event>> CreateAsync(
         Event body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
@@ -122,13 +118,12 @@ public sealed class EventRepository : IEventRepository
         return RepositoryResult<Event>.Success(body);
     }
 
-
     public async Task<RepositoryResult<Event>> UpdateAsync(
         string id,
         Event body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Event>.Failure(ApiErrors.Unauthorized());
@@ -196,12 +191,11 @@ public sealed class EventRepository : IEventRepository
         return RepositoryResult<Event>.Success(evt);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());

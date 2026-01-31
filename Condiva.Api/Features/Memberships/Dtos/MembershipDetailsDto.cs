@@ -1,3 +1,5 @@
+using Condiva.Api.Common.Dtos;
+
 namespace Condiva.Api.Features.Memberships.Dtos;
 
 public sealed record MembershipDetailsDto(
@@ -8,4 +10,5 @@ public sealed record MembershipDetailsDto(
     string Status,
     string? InvitedByUserId,
     DateTime CreatedAt,
-    DateTime? JoinedAt);
+    DateTime? JoinedAt,
+    UserSummaryDto Users);

@@ -43,7 +43,8 @@ public static class CommunitiesEndpoints
             var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<CommunityListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -66,7 +67,8 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<CommunityDetailsDto>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}/invite-code", async (
             string id,
@@ -89,7 +91,8 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<InviteCodeInfo, InviteCodeResponseDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<InviteCodeResponseDto>(StatusCodes.Status200OK);
 
         group.MapPost("/{id}/invite-code/rotate", async (
             string id,
@@ -112,7 +115,8 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<InviteCodeInfo, InviteCodeResponseDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<InviteCodeResponseDto>(StatusCodes.Status200OK);
 
         group.MapPost("/join", async (
             JoinCommunityRequestDto body,
@@ -134,11 +138,13 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
             return Results.Created($"/api/memberships/{payload.Id}", payload);
-        });
+        })
+            .Produces<MembershipDetailsDto>(StatusCodes.Status201Created);
 
         group.MapGet("/{id}/requests/feed", async (
             string id,
             string? status,
+            bool? excludingMine,
             int? page,
             int? pageSize,
             ClaimsPrincipal user,
@@ -165,6 +171,7 @@ public static class CommunitiesEndpoints
             var result = await repository.GetRequestsFeedAsync(
                 normalizedId!,
                 normalizedStatus,
+                excludingMine,
                 pageNumber,
                 size,
                 user);
@@ -180,7 +187,8 @@ public static class CommunitiesEndpoints
                 result.Data.PageSize,
                 result.Data.Total);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}/items/available", async (
             string id,
@@ -226,7 +234,8 @@ public static class CommunitiesEndpoints
                 result.Data.PageSize,
                 result.Data.Total);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<PagedResponseDto<ItemListItemDto>>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateCommunityRequestDto body,
@@ -256,7 +265,8 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
             return Results.Created($"/api/communities/{payload.Id}", payload);
-        });
+        })
+            .Produces<CommunityDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -293,7 +303,8 @@ public static class CommunitiesEndpoints
 
             var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<CommunityDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -314,7 +325,8 @@ public static class CommunitiesEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapGet("/{id}/invite-link", async (
             string id,
@@ -345,7 +357,8 @@ public static class CommunitiesEndpoints
             var url = $"{frontendBase.TrimEnd('/')}/join?code={Uri.EscapeDataString(info.EnterCode)}";
 
             return Results.Ok(new InviteLinkResponseDto(url, info.ExpiresAt));
-        });
+        })
+            .Produces<InviteLinkResponseDto>(StatusCodes.Status200OK);
 
         return endpoints;
     }

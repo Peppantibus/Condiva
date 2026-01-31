@@ -9,6 +9,8 @@ public interface IMembershipRepository
 {
     Task<RepositoryResult<IReadOnlyList<Membership>>> GetAllAsync(
         ClaimsPrincipal user);
+    Task<RepositoryResult<IReadOnlyList<Membership>>> GetMineAsync(
+        ClaimsPrincipal user);
     Task<RepositoryResult<IReadOnlyList<Community>>> GetMyCommunitiesAsync(
         ClaimsPrincipal user);
     Task<RepositoryResult<Membership>> GetByIdAsync(

@@ -38,7 +38,8 @@ public static class ItemsEndpoints
             var payload = mapper.MapList<Item, ItemListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<ItemListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -54,7 +55,8 @@ public static class ItemsEndpoints
 
             var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<ItemDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateItemRequestDto body,
@@ -89,7 +91,8 @@ public static class ItemsEndpoints
 
             var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
             return Results.Created($"/api/items/{payload.Id}", payload);
-        });
+        })
+            .Produces<ItemDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -125,7 +128,8 @@ public static class ItemsEndpoints
 
             var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<ItemDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -139,7 +143,8 @@ public static class ItemsEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         return endpoints;
     }

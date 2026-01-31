@@ -11,18 +11,16 @@ namespace Condiva.Api.Features.Memberships.Data;
 public sealed class MembershipRepository : IMembershipRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public MembershipRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public MembershipRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Membership>>> GetAllAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Membership>>.Failure(ApiErrors.Unauthorized());
@@ -35,16 +33,34 @@ public sealed class MembershipRepository : IMembershipRepository
             .Select(membership => membership.CommunityId);
 
         var memberships = await _dbContext.Memberships
+            .Include(membership => membership.User)
             .Where(membership => actorCommunityIds.Contains(membership.CommunityId))
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Membership>>.Success(memberships);
     }
 
+    public async Task<RepositoryResult<IReadOnlyList<Membership>>> GetMineAsync(
+        ClaimsPrincipal user)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<IReadOnlyList<Membership>>.Failure(ApiErrors.Unauthorized());
+        }
+
+        var memberships = await _dbContext.Memberships
+            .Include(membership => membership.User)
+            .Where(membership =>
+                membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active)
+            .ToListAsync();
+        return RepositoryResult<IReadOnlyList<Membership>>.Success(memberships);
+    }
 
     public async Task<RepositoryResult<IReadOnlyList<Community>>> GetMyCommunitiesAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Community>>.Failure(ApiErrors.Unauthorized());
@@ -65,30 +81,30 @@ public sealed class MembershipRepository : IMembershipRepository
         return RepositoryResult<IReadOnlyList<Community>>.Success(communities);
     }
 
-
     public async Task<RepositoryResult<Membership>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
         }
 
-        var membership = await _dbContext.Memberships.FindAsync(id);
+        var membership = await _dbContext.Memberships
+            .Include(foundMembership => foundMembership.User)
+            .FirstOrDefaultAsync(foundMembership => foundMembership.Id == id);
         return membership is null
             ? RepositoryResult<Membership>.Failure(ApiErrors.NotFound("Membership"))
             : await EnsureCommunityMemberAsync(membership.CommunityId, actorUserId, membership);
     }
-
 
     public async Task<RepositoryResult<Membership>> CreateAsync(
         Membership body,
         string? enterCode,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
@@ -139,16 +155,16 @@ public sealed class MembershipRepository : IMembershipRepository
 
         _dbContext.Memberships.Add(body);
         await _dbContext.SaveChangesAsync();
-        return RepositoryResult<Membership>.Success(body);
+        var createdMembership = await LoadMembershipWithUserAsync(body.Id);
+        return RepositoryResult<Membership>.Success(createdMembership ?? body);
     }
-
 
     public async Task<RepositoryResult<Membership>> UpdateAsync(
         string id,
         Membership body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
@@ -213,16 +229,16 @@ public sealed class MembershipRepository : IMembershipRepository
         membership.JoinedAt = body.JoinedAt;
 
         await _dbContext.SaveChangesAsync();
-        return RepositoryResult<Membership>.Success(membership);
+        var updatedMembership = await LoadMembershipWithUserAsync(membership.Id);
+        return RepositoryResult<Membership>.Success(updatedMembership ?? membership);
     }
-
 
     public async Task<RepositoryResult<Membership>> UpdateRoleAsync(
         string id,
         UpdateMembershipRoleRequest body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
@@ -272,15 +288,15 @@ public sealed class MembershipRepository : IMembershipRepository
 
         membership.Role = newRole;
         await _dbContext.SaveChangesAsync();
-        return RepositoryResult<Membership>.Success(membership);
+        var updatedMembership = await LoadMembershipWithUserAsync(membership.Id);
+        return RepositoryResult<Membership>.Success(updatedMembership ?? membership);
     }
-
 
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
@@ -314,12 +330,11 @@ public sealed class MembershipRepository : IMembershipRepository
         return RepositoryResult<bool>.Success(true);
     }
 
-
     public async Task<RepositoryResult<bool>> LeaveAsync(
         string communityId,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
@@ -360,6 +375,13 @@ public sealed class MembershipRepository : IMembershipRepository
             && other.Role == MembershipRole.Owner
             && other.UserId != membership.UserId
             && other.Status == MembershipStatus.Active);
+    }
+
+    private async Task<Membership?> LoadMembershipWithUserAsync(string membershipId)
+    {
+        return await _dbContext.Memberships
+            .Include(membership => membership.User)
+            .FirstOrDefaultAsync(membership => membership.Id == membershipId);
     }
 
     private async Task<RepositoryResult<Membership>> EnsureCommunityMemberAsync(

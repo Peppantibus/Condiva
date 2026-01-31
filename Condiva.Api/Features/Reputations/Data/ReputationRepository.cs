@@ -10,19 +10,17 @@ namespace Condiva.Api.Features.Reputations.Data;
 public sealed class ReputationRepository : IReputationRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public ReputationRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public ReputationRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<ReputationSnapshot>> GetMineAsync(
         string communityId,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Unauthorized());
@@ -31,13 +29,12 @@ public sealed class ReputationRepository : IReputationRepository
         return await GetReputation(communityId, actorUserId, actorUserId);
     }
 
-
     public async Task<RepositoryResult<ReputationSnapshot>> GetForUserAsync(
         string communityId,
         string userId,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<ReputationSnapshot>.Failure(ApiErrors.Unauthorized());

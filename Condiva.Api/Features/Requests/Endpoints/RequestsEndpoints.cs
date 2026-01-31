@@ -42,7 +42,8 @@ public static class RequestsEndpoints
             var payload = mapper.MapList<Request, RequestListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<RequestListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -59,7 +60,8 @@ public static class RequestsEndpoints
 
             var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}/offers", async (
             string id,
@@ -83,7 +85,8 @@ public static class RequestsEndpoints
                 result.Data.PageSize,
                 result.Data.Total);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<PagedResponseDto<OfferListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/me", async (
             string? communityId,
@@ -108,7 +111,8 @@ public static class RequestsEndpoints
                 result.Data.PageSize,
                 result.Data.Total);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateRequestRequestDto body,
@@ -145,7 +149,8 @@ public static class RequestsEndpoints
 
             var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
             return Results.Created($"/api/requests/{payload.Id}", payload);
-        });
+        })
+            .Produces<RequestDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -183,7 +188,8 @@ public static class RequestsEndpoints
 
             var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -198,7 +204,8 @@ public static class RequestsEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         return endpoints;
     }

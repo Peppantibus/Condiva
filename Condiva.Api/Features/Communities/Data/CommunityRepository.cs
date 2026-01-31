@@ -13,19 +13,16 @@ namespace Condiva.Api.Features.Communities.Data;
 public sealed class CommunityRepository : ICommunityRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public CommunityRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public CommunityRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
-
 
     public async Task<RepositoryResult<IReadOnlyList<Community>>> GetAllAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Community>>.Failure(ApiErrors.Unauthorized());
@@ -45,12 +42,11 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<IReadOnlyList<Community>>.Success(communities);
     }
 
-
     public async Task<RepositoryResult<Community>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
@@ -62,12 +58,11 @@ public sealed class CommunityRepository : ICommunityRepository
             : await EnsureCommunityMemberAsync(community, actorUserId);
     }
 
-
     public async Task<RepositoryResult<InviteCodeInfo>> GetInviteCodeAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.Unauthorized());
@@ -94,12 +89,11 @@ public sealed class CommunityRepository : ICommunityRepository
             new InviteCodeInfo(community.EnterCode, community.EnterCodeExpiresAt));
     }
 
-
     public async Task<RepositoryResult<InviteCodeInfo>> RotateInviteCodeAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(ApiErrors.Unauthorized());
@@ -130,12 +124,11 @@ public sealed class CommunityRepository : ICommunityRepository
             new InviteCodeInfo(community.EnterCode, community.EnterCodeExpiresAt));
     }
 
-
     public async Task<RepositoryResult<Membership>> JoinAsync(
         string? enterCode,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Unauthorized());
@@ -201,15 +194,15 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<Membership>.Success(member);
     }
 
-
     public async Task<RepositoryResult<PagedResult<Request>>> GetRequestsFeedAsync(
         string id,
         string? status,
+        bool? excludingMine,
         int? page,
         int? pageSize,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Request>>.Failure(ApiErrors.Unauthorized());
@@ -253,6 +246,10 @@ public sealed class CommunityRepository : ICommunityRepository
 
         var baseQuery = _dbContext.Requests
             .Where(request => request.CommunityId == id && request.Status == requestStatus);
+        if (excludingMine == true)
+        {
+            baseQuery = baseQuery.Where(request => request.RequesterUserId != actorUserId);
+        }
 
         var total = await baseQuery.CountAsync();
         var items = await baseQuery
@@ -267,7 +264,6 @@ public sealed class CommunityRepository : ICommunityRepository
             new PagedResult<Request>(items, pageNumber, size, total));
     }
 
-
     public async Task<RepositoryResult<PagedResult<Item>>> GetAvailableItemsAsync(
         string id,
         string? category,
@@ -275,7 +271,7 @@ public sealed class CommunityRepository : ICommunityRepository
         int? pageSize,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Item>>.Failure(ApiErrors.Unauthorized());
@@ -327,12 +323,11 @@ public sealed class CommunityRepository : ICommunityRepository
             new PagedResult<Item>(items, pageNumber, size, total));
     }
 
-
     public async Task<RepositoryResult<Community>> CreateAsync(
         Community body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
@@ -393,13 +388,12 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<Community>.Success(community);
     }
 
-
     public async Task<RepositoryResult<Community>> UpdateAsync(
         string id,
         Community body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Community>.Failure(ApiErrors.Unauthorized());
@@ -434,12 +428,11 @@ public sealed class CommunityRepository : ICommunityRepository
         return RepositoryResult<Community>.Success(community);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());

@@ -31,7 +31,8 @@ public static class AuthEndpoints
 
                     var result = await auth.Login(username!, password!);
                     return MapResult(result, AuthErrorKind.InvalidCredentials);
-                });
+                })
+            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
         group.MapPost("/register",
                 async (
@@ -80,7 +81,8 @@ public static class AuthEndpoints
                     }
 
                     return HttpResults.Ok();
-                });
+                })
+            .Produces(StatusCodes.Status200OK);
 
         group.MapPost("/recovery",
                 async (RecoveryRequest body, IAuthService<User> auth) =>
@@ -94,7 +96,8 @@ public static class AuthEndpoints
 
                     var result = await auth.RecoveryPassword(email!);
                     return result.IsSuccess ? HttpResults.Ok() : HttpResults.Ok();
-                });
+                })
+            .Produces(StatusCodes.Status200OK);
 
         group.MapPost("/reset",
                 async (ResetPasswordDto body, IAuthService<User> auth) =>
@@ -109,7 +112,8 @@ public static class AuthEndpoints
 
                     var result = await auth.ResetPassword(body);
                     return MapResult(result, AuthErrorKind.InvalidToken);
-                });
+                })
+            .Produces<bool>(StatusCodes.Status200OK);
 
         group.MapGet("/verify",
                 async (string token, IAuthService<User> auth) =>
@@ -122,7 +126,8 @@ public static class AuthEndpoints
 
                     var result = await auth.VerifyMail(token);
                     return MapResult(result, AuthErrorKind.InvalidToken);
-                });
+                })
+            .Produces<bool>(StatusCodes.Status200OK);
 
         group.MapPost("/verify/resend",
                 async (ResendVerificationRequest body, IAuthService<User> auth) =>
@@ -136,7 +141,8 @@ public static class AuthEndpoints
 
                     var result = await auth.ResendVerificationEmail(email!);
                     return result.IsSuccess ? HttpResults.Ok() : HttpResults.Ok();
-                });
+                })
+            .Produces(StatusCodes.Status200OK);
 
         group.MapPost("/refresh",
                 async (RefreshTokenRequest body, ITokenService<User> tokens) =>
@@ -152,7 +158,8 @@ public static class AuthEndpoints
                     return result.IsSuccess
                         ? HttpResults.Ok(result.Value)
                         : ErrorResult(AuthErrorKind.InvalidRefreshToken, result.Error ?? "Refresh token is invalid.");
-                });
+                })
+            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
         return endpoints;
     }

@@ -31,7 +31,8 @@ public static class ReputationsEndpoints
 
             var payload = mapper.Map<ReputationSnapshot, ReputationDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<ReputationDetailsDto>(StatusCodes.Status200OK);
 
         group.MapGet("/{communityId}/users/{userId}", async (
             string communityId,
@@ -48,7 +49,8 @@ public static class ReputationsEndpoints
 
             var payload = mapper.Map<ReputationSnapshot, ReputationDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<ReputationDetailsDto>(StatusCodes.Status200OK);
 
         return endpoints;
     }

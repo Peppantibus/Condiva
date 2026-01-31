@@ -12,19 +12,17 @@ namespace Condiva.Api.Features.Items.Data;
 public sealed class ItemRepository : IItemRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public ItemRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public ItemRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Item>>> GetAllAsync(
         string communityId,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Item>>.Failure(ApiErrors.Unauthorized());
@@ -45,12 +43,11 @@ public sealed class ItemRepository : IItemRepository
         return RepositoryResult<IReadOnlyList<Item>>.Success(items);
     }
 
-
     public async Task<RepositoryResult<Item>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Unauthorized());
@@ -64,12 +61,11 @@ public sealed class ItemRepository : IItemRepository
             : await EnsureCommunityMemberAsync(item.CommunityId, actorUserId, item);
     }
 
-
     public async Task<RepositoryResult<Item>> CreateAsync(
         Item body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Unauthorized());
@@ -80,9 +76,9 @@ public sealed class ItemRepository : IItemRepository
         }
         if (string.IsNullOrWhiteSpace(body.OwnerUserId))
         {
-            return RepositoryResult<Item>.Failure(ApiErrors.Required(nameof(body.OwnerUserId)));
+            body.OwnerUserId = actorUserId;
         }
-        if (!string.Equals(body.OwnerUserId, actorUserId, StringComparison.Ordinal))
+        else if (!string.Equals(body.OwnerUserId, actorUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Invalid("OwnerUserId must match the current user."));
         }
@@ -127,13 +123,12 @@ public sealed class ItemRepository : IItemRepository
         return RepositoryResult<Item>.Success(createdItem ?? body);
     }
 
-
     public async Task<RepositoryResult<Item>> UpdateAsync(
         string id,
         Item body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Unauthorized());
@@ -219,12 +214,11 @@ public sealed class ItemRepository : IItemRepository
         return RepositoryResult<Item>.Success(updatedItem ?? item);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());

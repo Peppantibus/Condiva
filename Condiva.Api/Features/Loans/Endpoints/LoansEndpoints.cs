@@ -32,7 +32,8 @@ public static class LoansEndpoints
             var payload = mapper.MapList<Loan, LoanListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<LoanListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -48,7 +49,8 @@ public static class LoansEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateLoanRequestDto body,
@@ -86,7 +88,8 @@ public static class LoansEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Created($"/api/loans/{payload.Id}", payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -126,7 +129,8 @@ public static class LoansEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -140,7 +144,8 @@ public static class LoansEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapPost("/{id}/start", async (
             string id,
@@ -156,7 +161,8 @@ public static class LoansEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/{id}/return", async (
             string id,
@@ -172,7 +178,8 @@ public static class LoansEndpoints
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
 
         return endpoints;
     }

@@ -2,7 +2,6 @@ using System;
 using System.Text;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
-using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
@@ -64,7 +63,6 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddAuthLibrary<User>(configuration);
         var jwtSettings = configuration.GetSection("JwtSettings");
         var jwtKey = jwtSettings.GetValue<string>("Key");

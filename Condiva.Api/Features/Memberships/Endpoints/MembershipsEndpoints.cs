@@ -34,7 +34,25 @@ public static class MembershipsEndpoints
             var payload = mapper.MapList<Membership, MembershipListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<MembershipListItemDto>>(StatusCodes.Status200OK);
+
+        group.MapGet("/me", async (
+            ClaimsPrincipal user,
+            IMembershipRepository repository,
+            IMapper mapper) =>
+        {
+            var result = await repository.GetMineAsync(user);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.MapList<Membership, MembershipListItemDto>(result.Data!)
+                .ToList();
+            return Results.Ok(payload);
+        })
+            .Produces<List<MembershipListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/me/communities", async (
             ClaimsPrincipal user,
@@ -50,7 +68,8 @@ public static class MembershipsEndpoints
             var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<CommunityListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -66,7 +85,8 @@ public static class MembershipsEndpoints
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateMembershipRequestDto body,
@@ -87,7 +107,8 @@ public static class MembershipsEndpoints
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
             return Results.Created($"/api/memberships/{payload.Id}", payload);
-        });
+        })
+            .Produces<MembershipDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -131,7 +152,8 @@ public static class MembershipsEndpoints
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/{id}/role", async (
             string id,
@@ -150,7 +172,8 @@ public static class MembershipsEndpoints
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -164,7 +187,8 @@ public static class MembershipsEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapPost("/leave/{communityId}", async (
             string communityId,
@@ -178,7 +202,8 @@ public static class MembershipsEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         return endpoints;
     }

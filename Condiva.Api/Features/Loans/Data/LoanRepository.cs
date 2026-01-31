@@ -15,18 +15,16 @@ namespace Condiva.Api.Features.Loans.Data;
 public sealed class LoanRepository : ILoanRepository
 {
     private readonly CondivaDbContext _dbContext;
-    private readonly ICurrentUser _currentUser;
 
-    public LoanRepository(CondivaDbContext dbContext, ICurrentUser currentUser)
+    public LoanRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
-        _currentUser = currentUser;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Loan>>> GetAllAsync(
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Loan>>.Failure(ApiErrors.Unauthorized());
@@ -45,12 +43,11 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<IReadOnlyList<Loan>>.Success(loans);
     }
 
-
     public async Task<RepositoryResult<Loan>> GetByIdAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -62,12 +59,11 @@ public sealed class LoanRepository : ILoanRepository
             : await EnsureCommunityMemberAsync(loan.CommunityId, actorUserId, loan);
     }
 
-
     public async Task<RepositoryResult<Loan>> CreateAsync(
         Loan body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -220,13 +216,12 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<Loan>.Success(body);
     }
 
-
     public async Task<RepositoryResult<Loan>> UpdateAsync(
         string id,
         Loan body,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -384,12 +379,11 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<Loan>.Success(loan);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
@@ -427,12 +421,11 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<bool>.Success(true);
     }
 
-
     public async Task<RepositoryResult<Loan>> StartAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
@@ -504,12 +497,11 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<Loan>.Success(loan);
     }
 
-
     public async Task<RepositoryResult<Loan>> ReturnAsync(
         string id,
         ClaimsPrincipal user)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());

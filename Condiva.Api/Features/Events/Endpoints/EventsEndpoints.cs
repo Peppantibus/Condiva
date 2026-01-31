@@ -31,7 +31,8 @@ public static class EventsEndpoints
             var payload = mapper.MapList<Event, EventListItemDto>(result.Data!)
                 .ToList();
             return Results.Ok(payload);
-        });
+        })
+            .Produces<List<EventListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -47,7 +48,8 @@ public static class EventsEndpoints
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<EventDetailsDto>(StatusCodes.Status200OK);
 
         group.MapPost("/", async (
             CreateEventRequestDto body,
@@ -72,7 +74,8 @@ public static class EventsEndpoints
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
             return Results.Created($"/api/events/{payload.Id}", payload);
-        });
+        })
+            .Produces<EventDetailsDto>(StatusCodes.Status201Created);
 
         group.MapPut("/{id}", async (
             string id,
@@ -98,7 +101,8 @@ public static class EventsEndpoints
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
             return Results.Ok(payload);
-        });
+        })
+            .Produces<EventDetailsDto>(StatusCodes.Status200OK);
 
         group.MapDelete("/{id}", async (
             string id,
@@ -112,7 +116,8 @@ public static class EventsEndpoints
             }
 
             return Results.NoContent();
-        });
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         return endpoints;
     }

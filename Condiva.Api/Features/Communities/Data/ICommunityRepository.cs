@@ -1,4 +1,4 @@
-using Condiva.Api.Common.Results;
+﻿using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Memberships.Models;
@@ -26,6 +26,7 @@ public interface ICommunityRepository
     Task<RepositoryResult<PagedResult<Request>>> GetRequestsFeedAsync(
         string id,
         string? status,
+        bool? excludingMine,
         int? page,
         int? pageSize,
         ClaimsPrincipal user);

@@ -10,12 +10,6 @@ namespace Condiva.Api.Features.Requests.Data;
 
 public sealed class RequestRepository : IRequestRepository
 {
-    private readonly ICurrentUser _currentUser;
-
-    public RequestRepository(ICurrentUser currentUser)
-    {
-        _currentUser = currentUser;
-    }
     private const int MaxDailyRequestsPerUser = 3;
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromHours(8);
 
@@ -24,7 +18,7 @@ public sealed class RequestRepository : IRequestRepository
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<IReadOnlyList<Request>>.Failure(ApiErrors.Unauthorized());
@@ -46,13 +40,12 @@ public sealed class RequestRepository : IRequestRepository
         return RepositoryResult<IReadOnlyList<Request>>.Success(requests);
     }
 
-
     public async Task<RepositoryResult<Request>> GetByIdAsync(
         string id,
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Unauthorized());
@@ -67,7 +60,6 @@ public sealed class RequestRepository : IRequestRepository
             : await EnsureCommunityMemberAsync(request.CommunityId, actorUserId, dbContext, request);
     }
 
-
     public async Task<RepositoryResult<PagedResult<Features.Offers.Models.Offer>>> GetOffersAsync(
         string id,
         int? page,
@@ -75,7 +67,7 @@ public sealed class RequestRepository : IRequestRepository
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Features.Offers.Models.Offer>>.Failure(ApiErrors.Unauthorized());
@@ -122,7 +114,6 @@ public sealed class RequestRepository : IRequestRepository
             new PagedResult<Features.Offers.Models.Offer>(items, pageNumber, size, total));
     }
 
-
     public async Task<RepositoryResult<PagedResult<Request>>> GetMineAsync(
         string? communityId,
         string? status,
@@ -131,7 +122,7 @@ public sealed class RequestRepository : IRequestRepository
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<PagedResult<Request>>.Failure(ApiErrors.Unauthorized());
@@ -177,13 +168,12 @@ public sealed class RequestRepository : IRequestRepository
             new PagedResult<Request>(items, pageNumber, size, total));
     }
 
-
     public async Task<RepositoryResult<Request>> CreateAsync(
         Request body,
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Unauthorized());
@@ -194,9 +184,9 @@ public sealed class RequestRepository : IRequestRepository
         }
         if (string.IsNullOrWhiteSpace(body.RequesterUserId))
         {
-            return RepositoryResult<Request>.Failure(ApiErrors.Required(nameof(body.RequesterUserId)));
+            body.RequesterUserId = actorUserId;
         }
-        if (!string.Equals(body.RequesterUserId, actorUserId, StringComparison.Ordinal))
+        else if (!string.Equals(body.RequesterUserId, actorUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Request>.Failure(
                 ApiErrors.Invalid("RequesterUserId must match the current user."));
@@ -268,14 +258,13 @@ public sealed class RequestRepository : IRequestRepository
         return RepositoryResult<Request>.Success(createdRequest ?? body);
     }
 
-
     public async Task<RepositoryResult<Request>> UpdateAsync(
         string id,
         Request body,
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Unauthorized());
@@ -366,13 +355,12 @@ public sealed class RequestRepository : IRequestRepository
         return RepositoryResult<Request>.Success(updatedRequest ?? request);
     }
 
-
     public async Task<RepositoryResult<bool>> DeleteAsync(
         string id,
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
-        var actorUserId = _currentUser.GetUserId(user);
+        var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
             return RepositoryResult<bool>.Failure(ApiErrors.Unauthorized());
