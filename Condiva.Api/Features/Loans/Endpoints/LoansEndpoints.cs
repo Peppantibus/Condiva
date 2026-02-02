@@ -1,4 +1,5 @@
 ﻿using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Loans.Data;
 using Condiva.Api.Features.Loans.Dtos;
@@ -19,21 +20,46 @@ public static class LoansEndpoints
         group.WithTags("Loans");
 
         group.MapGet("/", async (
+            string? communityId,
+            string? status,
+            DateTime? from,
+            DateTime? to,
+            int? page,
+            int? pageSize,
             ClaimsPrincipal user,
             ILoanRepository repository,
             IMapper mapper) =>
         {
-            var result = await repository.GetAllAsync(user);
+            var result = await repository.GetAllAsync(
+                communityId,
+                status,
+                from,
+                to,
+                page,
+                pageSize,
+                user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Loan, LoanListItemDto>(result.Data!)
+            var mapped = mapper.MapList<Loan, LoanListItemDto>(result.Data!.Items)
                 .ToList();
+            var usePaging = page.HasValue || pageSize.HasValue;
+            if (!usePaging)
+            {
+                return Results.Ok(mapped);
+            }
+
+            var payload = new PagedResponseDto<LoanListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
             return Results.Ok(payload);
         })
-            .Produces<List<LoanListItemDto>>(StatusCodes.Status200OK);
+            .Produces<List<LoanListItemDto>>(StatusCodes.Status200OK)
+            .Produces<PagedResponseDto<LoanListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -164,13 +190,47 @@ public static class LoansEndpoints
         })
             .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
 
-        group.MapPost("/{id}/return", async (
+        group.MapPost("/{id}/return-request", async (
             string id,
             ClaimsPrincipal user,
             ILoanRepository repository,
             IMapper mapper) =>
         {
-            var result = await repository.ReturnAsync(id, user);
+            var result = await repository.ReturnRequestAsync(id, user);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            return Results.Ok(payload);
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
+
+        group.MapPost("/{id}/return-confirm", async (
+            string id,
+            ClaimsPrincipal user,
+            ILoanRepository repository,
+            IMapper mapper) =>
+        {
+            var result = await repository.ReturnConfirmAsync(id, user);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            return Results.Ok(payload);
+        })
+            .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
+
+        group.MapPost("/{id}/return-cancel", async (
+            string id,
+            ClaimsPrincipal user,
+            ILoanRepository repository,
+            IMapper mapper) =>
+        {
+            var result = await repository.ReturnCancelAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;

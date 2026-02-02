@@ -186,7 +186,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         using var client = CreateClientWithToken(memberId);
         var response = await client.PostAsync($"/api/offers/{offerId}/reject", null);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -203,6 +203,133 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var response = await client.PostAsync($"/api/offers/{offerId}/withdraw", null);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task WithdrawOffer_AsNonOfferer_ReturnsForbidden()
+    {
+        var requesterId = "requester-withdraw-user-2";
+        var lenderId = "lender-withdraw-user-2";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/withdraw", null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task WithdrawOffer_WhenRequestClosed_ReturnsConflict()
+    {
+        var requesterId = "requester-withdraw-user-3";
+        var lenderId = "lender-withdraw-user-3";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStatusAsync(requestId, RequestStatus.Closed);
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/withdraw", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RejectOffer_WhenRequestClosed_ReturnsConflict()
+    {
+        var requesterId = "requester-reject-user-3";
+        var lenderId = "lender-reject-user-3";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStatusAsync(requestId, RequestStatus.Closed);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/reject", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptOffer_AsRequester_ReturnsCreated()
+    {
+        var requesterId = "accept-requester-user";
+        var lenderId = "accept-lender-user";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsJsonAsync($"/api/offers/{offerId}/accept", new
+        {
+            BorrowerUserId = requesterId
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptOffer_AsNonRequester_ReturnsForbidden()
+    {
+        var requesterId = "accept-requester-user-2";
+        var lenderId = "accept-lender-user-2";
+        var memberId = "accept-other-user-2";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        await AddMemberAsync(communityId, memberId, MembershipRole.Member);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.PostAsJsonAsync($"/api/offers/{offerId}/accept", new
+        {
+            BorrowerUserId = memberId
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptOffer_WhenRequestClosed_ReturnsConflict()
+    {
+        var requesterId = "accept-requester-user-3";
+        var lenderId = "accept-lender-user-3";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStatusAsync(requestId, RequestStatus.Closed);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsJsonAsync($"/api/offers/{offerId}/accept", new
+        {
+            BorrowerUserId = requesterId
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptOffer_WithoutRequest_ReturnsConflict()
+    {
+        var lenderId = "accept-no-request-lender";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, null);
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsJsonAsync($"/api/offers/{offerId}/accept", new
+        {
+            BorrowerUserId = lenderId
+        });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]
@@ -395,9 +522,102 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             ItemStatus.InLoan);
 
         using var client = CreateClientWithToken(memberId);
-        var response = await client.PostAsync($"/api/loans/{loanId}/return", null);
+        var response = await client.PostAsync($"/api/loans/{loanId}/return-request", null);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReturnRequest_DoesNotChangeItemStatus_ReturnsOk()
+    {
+        var lenderId = "loan-return-request-lender";
+        var borrowerId = "loan-return-request-borrower";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId, borrowerId);
+        var itemId = await SeedItemAsync(communityId, lenderId, ItemStatus.InLoan);
+        var loanId = await SeedLoanAsync(
+            communityId,
+            itemId,
+            lenderId,
+            borrowerId,
+            null,
+            Condiva.Api.Features.Loans.Models.LoanStatus.InLoan,
+            ItemStatus.InLoan);
+
+        using var client = CreateClientWithToken(borrowerId);
+        var response = await client.PostAsync($"/api/loans/{loanId}/return-request", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+        var item = await dbContext.Items.FindAsync(itemId);
+        Assert.NotNull(item);
+        Assert.Equal(ItemStatus.InLoan, item!.Status);
+    }
+
+    [Fact]
+    public async Task ReturnCancel_DoesNotChangeItemStatus_ReturnsOk()
+    {
+        var lenderId = "loan-return-cancel-lender";
+        var borrowerId = "loan-return-cancel-borrower";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId, borrowerId);
+        var itemId = await SeedItemAsync(communityId, lenderId, ItemStatus.InLoan);
+        var loanId = await SeedLoanAsync(
+            communityId,
+            itemId,
+            lenderId,
+            borrowerId,
+            null,
+            Condiva.Api.Features.Loans.Models.LoanStatus.ReturnRequested,
+            ItemStatus.InLoan);
+
+        await SetLoanReturnRequestedAtAsync(loanId);
+
+        using var client = CreateClientWithToken(borrowerId);
+        var response = await client.PostAsync($"/api/loans/{loanId}/return-cancel", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+        var item = await dbContext.Items.FindAsync(itemId);
+        Assert.NotNull(item);
+        Assert.Equal(ItemStatus.InLoan, item!.Status);
+    }
+
+    [Fact]
+    public async Task ReturnConfirm_IgnoresItemStatus_ReturnsOk()
+    {
+        var lenderId = "loan-return-confirm-lender";
+        var borrowerId = "loan-return-confirm-borrower";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId, borrowerId);
+        var itemId = await SeedItemAsync(communityId, lenderId, ItemStatus.Available);
+        var loanId = await SeedLoanAsync(
+            communityId,
+            itemId,
+            lenderId,
+            borrowerId,
+            null,
+            Condiva.Api.Features.Loans.Models.LoanStatus.ReturnRequested,
+            ItemStatus.Available);
+
+        await SetLoanReturnRequestedAtAsync(loanId);
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsync($"/api/loans/{loanId}/return-confirm", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+        var loan = await dbContext.Loans.FindAsync(loanId);
+        var item = await dbContext.Items.FindAsync(itemId);
+        Assert.NotNull(loan);
+        Assert.NotNull(item);
+        Assert.Equal(Condiva.Api.Features.Loans.Models.LoanStatus.Returned, loan!.Status);
+        Assert.NotNull(loan.ReturnedAt);
+        Assert.NotNull(loan.ReturnConfirmedAt);
+        Assert.Equal(ItemStatus.Available, item!.Status);
     }
 
     [Fact]
@@ -411,7 +631,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         using var client = CreateClientWithToken(lenderId);
         var response = await client.PostAsync($"/api/offers/{offerId}/reject", null);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]
@@ -427,7 +647,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         using var client = CreateClientWithToken(memberId);
         var response = await client.PostAsync($"/api/offers/{offerId}/reject", null);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]
@@ -884,10 +1104,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             BorrowerUserId = borrowerId,
             RequestId = (string?)null,
             OfferId = (string?)null,
-            Status = "Reserved",
-            StartAt = DateTime.UtcNow,
-            DueAt = DateTime.UtcNow.AddDays(7),
-            ReturnedAt = (DateTime?)null
+            Status = "Reserved"
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -1150,6 +1367,21 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         return offer.Id;
     }
 
+    private async Task SetRequestStatusAsync(string requestId, RequestStatus status)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var request = await dbContext.Requests.FindAsync(requestId);
+        if (request is null)
+        {
+            throw new InvalidOperationException("Request not found.");
+        }
+
+        request.Status = status;
+        await dbContext.SaveChangesAsync();
+    }
+
     private async Task<string> SeedLoanAsync(
         string communityId,
         string itemId,
@@ -1184,6 +1416,21 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         }
         await dbContext.SaveChangesAsync();
         return loan.Id;
+    }
+
+    private async Task SetLoanReturnRequestedAtAsync(string loanId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var loan = await dbContext.Loans.FindAsync(loanId);
+        if (loan is null)
+        {
+            throw new InvalidOperationException("Loan not found.");
+        }
+
+        loan.ReturnRequestedAt = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync();
     }
 
     private async Task<string> SeedEventAsync(string communityId, string actorUserId)

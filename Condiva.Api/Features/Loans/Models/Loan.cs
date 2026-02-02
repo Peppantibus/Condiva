@@ -19,6 +19,8 @@ public sealed class Loan
     public DateTime StartAt { get; set; }
     public DateTime? DueAt { get; set; }
     public DateTime? ReturnedAt { get; set; }
+    public DateTime? ReturnRequestedAt { get; set; }
+    public DateTime? ReturnConfirmedAt { get; set; }
 
     public Community? Community { get; set; }
     public Item? Item { get; set; }
@@ -28,10 +30,25 @@ public sealed class Loan
     public User? BorrowerUser { get; set; }
 }
 
+/// <summary>
+/// Loan lifecycle status.
+/// Valid transitions:
+/// Reserved -> InLoan (POST /api/loans/{id}/start),
+/// InLoan -> ReturnRequested (POST /api/loans/{id}/return-request),
+/// ReturnRequested -> InLoan (POST /api/loans/{id}/return-cancel),
+/// ReturnRequested -> Returned (POST /api/loans/{id}/return-confirm).
+/// Expired is reserved for future use and is not set by the API.
+/// </summary>
 public enum LoanStatus
 {
+    /// <summary>Loan created and item reserved.</summary>
     Reserved,
+    /// <summary>Loan in progress; item is in loan.</summary>
     InLoan,
+    /// <summary>Borrower requested return; waiting for lender confirmation.</summary>
+    ReturnRequested,
+    /// <summary>Loan closed via return; ReturnedAt must be set.</summary>
     Returned,
+    /// <summary>Reserved for future use.</summary>
     Expired
 }

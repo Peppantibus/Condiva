@@ -1,3 +1,5 @@
+using Condiva.Api.Common.Dtos;
+
 namespace Condiva.Api.Features.Loans.Dtos;
 
 public sealed record LoanListItemDto(
@@ -11,4 +13,9 @@ public sealed record LoanListItemDto(
     string Status,
     DateTime StartAt,
     DateTime? DueAt,
-    DateTime? ReturnedAt);
+    DateTime? ReturnedAt,
+    DateTime? ReturnRequestedAt,
+    DateTime? ReturnConfirmedAt,
+    UserSummaryDto Lender,
+    UserSummaryDto Borrower,
+    ItemSummaryDto Item);

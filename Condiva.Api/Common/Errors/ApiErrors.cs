@@ -25,4 +25,16 @@ public static class ApiErrors
             new { error = "Unauthorized.", code = "unauthorized" },
             statusCode: StatusCodes.Status401Unauthorized);
     }
+
+    public static IResult Forbidden(string message)
+    {
+        return HttpResults.Json(
+            new { error = message, code = "forbidden" },
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    public static IResult Conflict(string message)
+    {
+        return HttpResults.Conflict(new { error = message, code = "conflict" });
+    }
 }

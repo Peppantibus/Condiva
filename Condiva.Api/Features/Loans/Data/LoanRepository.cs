@@ -21,26 +21,89 @@ public sealed class LoanRepository : ILoanRepository
         _dbContext = dbContext;
     }
 
-    public async Task<RepositoryResult<IReadOnlyList<Loan>>> GetAllAsync(
+    public async Task<RepositoryResult<PagedResult<Loan>>> GetAllAsync(
+        string? communityId,
+        string? status,
+        DateTime? from,
+        DateTime? to,
+        int? page,
+        int? pageSize,
         ClaimsPrincipal user)
     {
         var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
-            return RepositoryResult<IReadOnlyList<Loan>>.Failure(ApiErrors.Unauthorized());
+            return RepositoryResult<PagedResult<Loan>>.Failure(ApiErrors.Unauthorized());
         }
 
-        var loans = await _dbContext.Loans
-            .Join(
-                _dbContext.Memberships.Where(membership =>
-                    membership.UserId == actorUserId
-                    && membership.Status == MembershipStatus.Active),
-                loan => loan.CommunityId,
-                membership => membership.CommunityId,
-                (loan, _) => loan)
-            .Distinct()
-            .ToListAsync();
-        return RepositoryResult<IReadOnlyList<Loan>>.Success(loans);
+        if (from.HasValue && to.HasValue && from > to)
+        {
+            return RepositoryResult<PagedResult<Loan>>.Failure(
+                ApiErrors.Invalid("Invalid date range."));
+        }
+
+        LoanStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<LoanStatus>(status, true, out var parsedStatus))
+            {
+                return RepositoryResult<PagedResult<Loan>>.Failure(
+                    ApiErrors.Invalid("Invalid status filter."));
+            }
+            statusFilter = parsedStatus;
+        }
+
+        var query = _dbContext.Loans
+            .Include(loan => loan.LenderUser)
+            .Include(loan => loan.BorrowerUser)
+            .Include(loan => loan.Item)
+            .Where(loan => _dbContext.Memberships.Any(membership =>
+                membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active
+                && membership.CommunityId == loan.CommunityId))
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(communityId))
+        {
+            query = query.Where(loan => loan.CommunityId == communityId);
+        }
+        if (statusFilter.HasValue)
+        {
+            query = query.Where(loan => loan.Status == statusFilter.Value);
+        }
+        if (from.HasValue)
+        {
+            query = query.Where(loan => loan.StartAt >= from.Value);
+        }
+        if (to.HasValue)
+        {
+            query = query.Where(loan => loan.StartAt <= to.Value);
+        }
+
+        var usePaging = page.HasValue || pageSize.HasValue;
+        if (usePaging)
+        {
+            var pageNumber = page.GetValueOrDefault(1);
+            var size = pageSize.GetValueOrDefault(20);
+            if (pageNumber <= 0 || size <= 0 || size > 100)
+            {
+                return RepositoryResult<PagedResult<Loan>>.Failure(
+                    ApiErrors.Invalid("Invalid pagination values."));
+            }
+
+            var total = await query.CountAsync();
+            var items = await query
+                .OrderByDescending(loan => loan.StartAt)
+                .Skip((pageNumber - 1) * size)
+                .Take(size)
+                .ToListAsync();
+            return RepositoryResult<PagedResult<Loan>>.Success(
+                new PagedResult<Loan>(items, pageNumber, size, total));
+        }
+
+        var loans = await query.ToListAsync();
+        return RepositoryResult<PagedResult<Loan>>.Success(
+            new PagedResult<Loan>(loans, 1, loans.Count, loans.Count));
     }
 
     public async Task<RepositoryResult<Loan>> GetByIdAsync(
@@ -53,7 +116,11 @@ public sealed class LoanRepository : ILoanRepository
             return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
         }
 
-        var loan = await _dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans
+            .Include(candidate => candidate.LenderUser)
+            .Include(candidate => candidate.BorrowerUser)
+            .Include(candidate => candidate.Item)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id);
         return loan is null
             ? RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"))
             : await EnsureCommunityMemberAsync(loan.CommunityId, actorUserId, loan);
@@ -93,6 +160,15 @@ public sealed class LoanRepository : ILoanRepository
         if (body.Status != LoanStatus.Reserved)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Status must be Reserved on create."));
+        }
+        var invariantError = ValidateReturnInvariant(
+            body.Status,
+            body.ReturnedAt,
+            body.ReturnRequestedAt,
+            body.ReturnConfirmedAt);
+        if (invariantError is not null)
+        {
+            return RepositoryResult<Loan>.Failure(invariantError);
         }
         var communityExists = await _dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
@@ -271,7 +347,36 @@ public sealed class LoanRepository : ILoanRepository
         }
         if (body.Status != LoanStatus.Reserved)
         {
+            if (body.Status == LoanStatus.Returned)
+            {
+                return RepositoryResult<Loan>.Failure(
+                    ApiErrors.Invalid("Use POST /api/loans/{id}/return to mark a loan as returned."));
+            }
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Status cannot be changed via update."));
+        }
+        if (body.ReturnedAt is not null)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Invalid("ReturnedAt cannot be set via update."));
+        }
+        if (body.StartAt != default)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Invalid("StartAt cannot be changed via update."));
+        }
+        if (body.DueAt is not null)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Invalid("DueAt cannot be changed via update."));
+        }
+        var invariantError = ValidateReturnInvariant(
+            body.Status,
+            body.ReturnedAt,
+            body.ReturnRequestedAt,
+            body.ReturnConfirmedAt);
+        if (invariantError is not null)
+        {
+            return RepositoryResult<Loan>.Failure(invariantError);
         }
         if (!CanManageCommunity(membership))
         {
@@ -371,9 +476,6 @@ public sealed class LoanRepository : ILoanRepository
         loan.RequestId = body.RequestId;
         loan.OfferId = body.OfferId;
         loan.Status = body.Status;
-        loan.StartAt = body.StartAt;
-        loan.DueAt = body.DueAt;
-        loan.ReturnedAt = body.ReturnedAt;
 
         await _dbContext.SaveChangesAsync();
         return RepositoryResult<Loan>.Success(loan);
@@ -497,7 +599,7 @@ public sealed class LoanRepository : ILoanRepository
         return RepositoryResult<Loan>.Success(loan);
     }
 
-    public async Task<RepositoryResult<Loan>> ReturnAsync(
+    public async Task<RepositoryResult<Loan>> ReturnRequestAsync(
         string id,
         ClaimsPrincipal user)
     {
@@ -511,7 +613,10 @@ public sealed class LoanRepository : ILoanRepository
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
-        var loan = await _dbContext.Loans.FindAsync(id);
+        var loan = await _dbContext.Loans
+            .Include(candidate => candidate.LenderUser)
+            .Include(candidate => candidate.BorrowerUser)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id);
         if (loan is null)
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
@@ -523,19 +628,88 @@ public sealed class LoanRepository : ILoanRepository
         if (membership is null)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not allowed to request the return."));
         }
         var canManage = CanManageCommunity(membership)
-            || string.Equals(loan.LenderUserId, actorUserId, StringComparison.Ordinal)
             || string.Equals(loan.BorrowerUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not allowed to return the loan."));
+                ApiErrors.Forbidden("User is not allowed to request the return."));
         }
         if (loan.Status != LoanStatus.InLoan)
         {
-            return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Loan is not in progress."));
+            return RepositoryResult<Loan>.Failure(ApiErrors.Conflict("Loan is not in progress."));
+        }
+
+        loan.Status = LoanStatus.ReturnRequested;
+        loan.ReturnRequestedAt = DateTime.UtcNow;
+        loan.ReturnConfirmedAt = null;
+
+        var invariantError = ValidateReturnInvariant(
+            loan.Status,
+            loan.ReturnedAt,
+            loan.ReturnRequestedAt,
+            loan.ReturnConfirmedAt);
+        if (invariantError is not null)
+        {
+            return RepositoryResult<Loan>.Failure(invariantError);
+        }
+
+        _dbContext.Events.Add(CreateEvent(
+            loan.CommunityId,
+            actorUserId,
+            "Loan",
+            loan.Id,
+            "LoanReturnRequested",
+            DateTime.UtcNow));
+
+        await _dbContext.SaveChangesAsync();
+        return RepositoryResult<Loan>.Success(loan);
+    }
+
+    public async Task<RepositoryResult<Loan>> ReturnConfirmAsync(
+        string id,
+        ClaimsPrincipal user)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
+        }
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        if (!actorExists)
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
+        }
+        var loan = await _dbContext.Loans
+            .Include(candidate => candidate.LenderUser)
+            .Include(candidate => candidate.BorrowerUser)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id);
+        if (loan is null)
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
+        }
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
+            membership.CommunityId == loan.CommunityId
+            && membership.UserId == actorUserId
+            && membership.Status == MembershipStatus.Active);
+        if (membership is null)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Forbidden("User is not allowed to confirm the return."));
+        }
+        var canManage = CanManageCommunity(membership)
+            || string.Equals(loan.LenderUserId, actorUserId, StringComparison.Ordinal);
+        if (!canManage)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Forbidden("User is not allowed to confirm the return."));
+        }
+        if (loan.Status != LoanStatus.ReturnRequested)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Conflict("Loan is not waiting for return confirmation."));
         }
 
         var item = await _dbContext.Items.FindAsync(loan.ItemId);
@@ -543,18 +717,25 @@ public sealed class LoanRepository : ILoanRepository
         {
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Item does not exist."));
         }
-        if (item.Status != ItemStatus.InLoan)
-        {
-            return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Item is not in loan."));
-        }
 
         loan.Status = LoanStatus.Returned;
         loan.ReturnedAt = DateTime.UtcNow;
+        loan.ReturnConfirmedAt = DateTime.UtcNow;
         item.Status = ItemStatus.Available;
 
         var returnedOnTime = loan.DueAt != null
             && loan.ReturnedAt != null
             && loan.ReturnedAt <= loan.DueAt;
+
+        var invariantError = ValidateReturnInvariant(
+            loan.Status,
+            loan.ReturnedAt,
+            loan.ReturnRequestedAt,
+            loan.ReturnConfirmedAt);
+        if (invariantError is not null)
+        {
+            return RepositoryResult<Loan>.Failure(invariantError);
+        }
 
         await ApplyReturnReputationUpdate(
             loan.CommunityId,
@@ -591,6 +772,76 @@ public sealed class LoanRepository : ILoanRepository
                     DateTime.UtcNow));
             }
         }
+
+        await _dbContext.SaveChangesAsync();
+        return RepositoryResult<Loan>.Success(loan);
+    }
+
+    public async Task<RepositoryResult<Loan>> ReturnCancelAsync(
+        string id,
+        ClaimsPrincipal user)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.Unauthorized());
+        }
+        var actorExists = await _dbContext.Users.AnyAsync(user => user.Id == actorUserId);
+        if (!actorExists)
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
+        }
+        var loan = await _dbContext.Loans
+            .Include(candidate => candidate.LenderUser)
+            .Include(candidate => candidate.BorrowerUser)
+            .FirstOrDefaultAsync(candidate => candidate.Id == id);
+        if (loan is null)
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.NotFound("Loan"));
+        }
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(membership =>
+            membership.CommunityId == loan.CommunityId
+            && membership.UserId == actorUserId
+            && membership.Status == MembershipStatus.Active);
+        if (membership is null)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Forbidden("User is not allowed to cancel the return request."));
+        }
+        var canManage = CanManageCommunity(membership)
+            || string.Equals(loan.BorrowerUserId, actorUserId, StringComparison.Ordinal);
+        if (!canManage)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Forbidden("User is not allowed to cancel the return request."));
+        }
+        if (loan.Status != LoanStatus.ReturnRequested)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Conflict("Loan is not waiting for return confirmation."));
+        }
+
+        loan.Status = LoanStatus.InLoan;
+        loan.ReturnRequestedAt = null;
+        loan.ReturnConfirmedAt = null;
+
+        var invariantError = ValidateReturnInvariant(
+            loan.Status,
+            loan.ReturnedAt,
+            loan.ReturnRequestedAt,
+            loan.ReturnConfirmedAt);
+        if (invariantError is not null)
+        {
+            return RepositoryResult<Loan>.Failure(invariantError);
+        }
+
+        _dbContext.Events.Add(CreateEvent(
+            loan.CommunityId,
+            actorUserId,
+            "Loan",
+            loan.Id,
+            "LoanReturnCanceled",
+            DateTime.UtcNow));
 
         await _dbContext.SaveChangesAsync();
         return RepositoryResult<Loan>.Success(loan);
@@ -668,6 +919,42 @@ public sealed class LoanRepository : ILoanRepository
         }
 
         return RepositoryResult<Loan>.Success(loan);
+    }
+
+    private static IResult? ValidateReturnInvariant(
+        LoanStatus status,
+        DateTime? returnedAt,
+        DateTime? returnRequestedAt,
+        DateTime? returnConfirmedAt)
+    {
+        if (status == LoanStatus.Returned && returnedAt is null)
+        {
+            return ApiErrors.Invalid("ReturnedAt is required when status is Returned.");
+        }
+        if (status != LoanStatus.Returned && returnedAt is not null)
+        {
+            return ApiErrors.Invalid("ReturnedAt can only be set when status is Returned.");
+        }
+        if (returnConfirmedAt is not null && status != LoanStatus.Returned)
+        {
+            return ApiErrors.Invalid("ReturnConfirmedAt can only be set when status is Returned.");
+        }
+        if (returnConfirmedAt is not null && returnedAt is null)
+        {
+            return ApiErrors.Invalid("ReturnConfirmedAt requires ReturnedAt.");
+        }
+        if (status == LoanStatus.ReturnRequested && returnRequestedAt is null)
+        {
+            return ApiErrors.Invalid("ReturnRequestedAt is required when status is ReturnRequested.");
+        }
+        if (status != LoanStatus.ReturnRequested
+            && status != LoanStatus.Returned
+            && returnRequestedAt is not null)
+        {
+            return ApiErrors.Invalid("ReturnRequestedAt can only be set when status is ReturnRequested.");
+        }
+
+        return null;
     }
 
     private static Event CreateEvent(

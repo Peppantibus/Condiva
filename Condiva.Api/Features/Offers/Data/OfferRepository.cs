@@ -397,7 +397,11 @@ public sealed class OfferRepository : IOfferRepository
         }
         if (offer.Status != OfferStatus.Open)
         {
-            return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Offer is not open."));
+            return RepositoryResult<Loan>.Failure(ApiErrors.Conflict("Offer is not open."));
+        }
+        if (string.IsNullOrWhiteSpace(offer.RequestId))
+        {
+            return RepositoryResult<Loan>.Failure(ApiErrors.Conflict("Offer is not linked to a request."));
         }
         var item = await _dbContext.Items.FindAsync(offer.ItemId);
         if (item is null)
@@ -415,39 +419,28 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("ActorUserId does not exist."));
         }
 
-        string borrowerUserId;
-        Request? request = null;
-        if (!string.IsNullOrWhiteSpace(offer.RequestId))
+        var request = await _dbContext.Requests.FindAsync(offer.RequestId);
+        if (request is null)
         {
-            request = await _dbContext.Requests.FindAsync(offer.RequestId);
-            if (request is null)
-            {
-                return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Request does not exist."));
-            }
-            if (request.Status != RequestStatus.Open)
-            {
-                return RepositoryResult<Loan>.Failure(ApiErrors.Invalid("Request is not open."));
-            }
-            if (request.RequesterUserId != actorUserId)
-            {
-                return RepositoryResult<Loan>.Failure(
-                    ApiErrors.Invalid("ActorUserId must be the requester."));
-            }
-            borrowerUserId = request.RequesterUserId;
+            return RepositoryResult<Loan>.Failure(ApiErrors.Conflict("Request does not exist."));
         }
-        else
+        if (request.Status != RequestStatus.Open)
         {
-            if (string.IsNullOrWhiteSpace(body.BorrowerUserId))
-            {
-                return RepositoryResult<Loan>.Failure(ApiErrors.Required(nameof(body.BorrowerUserId)));
-            }
-            if (body.BorrowerUserId != actorUserId)
-            {
-                return RepositoryResult<Loan>.Failure(
-                    ApiErrors.Invalid("ActorUserId must match BorrowerUserId."));
-            }
-            borrowerUserId = body.BorrowerUserId;
+            return RepositoryResult<Loan>.Failure(ApiErrors.Conflict("Request is not open."));
         }
+        if (request.RequesterUserId != actorUserId)
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Forbidden("User is not allowed to accept the offer."));
+        }
+        if (!string.IsNullOrWhiteSpace(body.BorrowerUserId)
+            && !string.Equals(body.BorrowerUserId, request.RequesterUserId, StringComparison.Ordinal))
+        {
+            return RepositoryResult<Loan>.Failure(
+                ApiErrors.Conflict("BorrowerUserId must match the requester."));
+        }
+
+        var borrowerUserId = request.RequesterUserId;
 
         var lenderMember = await _dbContext.Memberships.AnyAsync(membership =>
             membership.CommunityId == offer.CommunityId
@@ -544,28 +537,25 @@ public sealed class OfferRepository : IOfferRepository
         }
         if (offer.Status != OfferStatus.Open)
         {
-            return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Offer is not open."));
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Offer is not open."));
         }
-        var canManage = CanManageCommunity(membership);
-        if (!string.IsNullOrWhiteSpace(offer.RequestId))
+        if (string.IsNullOrWhiteSpace(offer.RequestId))
         {
-            var request = await _dbContext.Requests.FindAsync(offer.RequestId);
-            if (request is null)
-            {
-                return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Request does not exist."));
-            }
-            if (!canManage
-                && !string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal))
-            {
-                return RepositoryResult<Offer>.Failure(
-                    ApiErrors.Invalid("User is not allowed to reject the offer."));
-            }
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Offer is not linked to a request."));
         }
-        else if (!canManage
-            && !string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal))
+        var request = await _dbContext.Requests.FindAsync(offer.RequestId);
+        if (request is null)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request does not exist."));
+        }
+        if (request.Status != RequestStatus.Open)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request is not open."));
+        }
+        if (!string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not allowed to reject the offer."));
+                ApiErrors.Forbidden("User is not allowed to reject the offer."));
         }
 
         offer.Status = OfferStatus.Rejected;
@@ -608,16 +598,26 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Offer>.Failure(
                 ApiErrors.Invalid("User is not a member of the community."));
         }
-        var canManage = CanManageCommunity(membership)
-            || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
-        if (!canManage)
+        if (!string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not allowed to withdraw the offer."));
+                ApiErrors.Forbidden("User is not allowed to withdraw the offer."));
         }
         if (offer.Status != OfferStatus.Open)
         {
-            return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("Offer is not open."));
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Offer is not open."));
+        }
+        if (!string.IsNullOrWhiteSpace(offer.RequestId))
+        {
+            var request = await _dbContext.Requests.FindAsync(offer.RequestId);
+            if (request is null)
+            {
+                return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request does not exist."));
+            }
+            if (request.Status != RequestStatus.Open)
+            {
+                return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request is not open."));
+            }
         }
 
         offer.Status = OfferStatus.Withdrawn;
