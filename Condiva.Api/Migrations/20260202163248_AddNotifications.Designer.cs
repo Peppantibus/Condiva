@@ -10,8 +10,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Condiva.Api.Migrations
 {
     [DbContext(typeof(CondivaDbContext))]
-    [Migration("20260122222348_add entercode colums")]
-    partial class AddEntercodeColums
+    [Migration("20260202163248_AddNotifications")]
+    partial class AddNotifications
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -272,6 +272,12 @@ namespace Condiva.Api.Migrations
                     b.Property<string>("RequestId")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("ReturnConfirmedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReturnRequestedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("ReturnedAt")
                         .HasColumnType("TEXT");
 
@@ -334,6 +340,52 @@ namespace Condiva.Api.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("Memberships");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Notifications.Models.Notification", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CommunityId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EntityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EntityType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Payload")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommunityId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>
@@ -586,6 +638,25 @@ namespace Condiva.Api.Migrations
                     b.Navigation("Community");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Notifications.Models.Notification", b =>
+                {
+                    b.HasOne("Condiva.Api.Features.Communities.Models.Community", "Community")
+                        .WithMany()
+                        .HasForeignKey("CommunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Condiva.Api.Common.Auth.Models.User", "RecipientUser")
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Community");
+
+                    b.Navigation("RecipientUser");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>

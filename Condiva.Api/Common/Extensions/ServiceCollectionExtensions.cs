@@ -12,6 +12,9 @@ using Condiva.Api.Features.Events.Data;
 using Condiva.Api.Features.Items.Data;
 using Condiva.Api.Features.Loans.Data;
 using Condiva.Api.Features.Memberships.Data;
+using Condiva.Api.Features.Notifications.Models;
+using Condiva.Api.Features.Notifications.Data;
+using Condiva.Api.Features.Notifications.Services;
 using Condiva.Api.Features.Offers.Data;
 using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Requests.Data;
@@ -131,6 +134,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<IReputationRepository, ReputationRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddSingleton<NotificationRules>();
+        services.AddSingleton<INotificationsProcessor, NotificationsProcessor>();
+        services.AddHostedService<NotificationsBackgroundService>();
 
         var mapperRegistry = new MapperRegistry();
         MappingRegistration.RegisterAll(mapperRegistry);

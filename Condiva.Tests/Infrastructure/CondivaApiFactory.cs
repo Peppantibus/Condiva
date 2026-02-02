@@ -43,7 +43,17 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
                 ["AuthSettings:AutoVerifyEmail"] = "true",
                 ["TemplateSettings:BasePath"] = "templates",
                 ["RefreshTokenSettings:RefreshTokenLifetimeDays"] = "30",
-                ["Redis:Url"] = ""
+                ["Redis:Url"] = "",
+                ["NotificationProcessing:Enabled"] = "false",
+                ["NotificationProcessing:PollIntervalSeconds"] = "1",
+                ["NotificationProcessing:BatchSize"] = "50",
+                ["NotificationRules:Mappings:0:EntityType"] = "Offer",
+                ["NotificationRules:Mappings:0:Action"] = "OfferCreated",
+                ["NotificationRules:Mappings:0:Types:0"] = "OfferReceivedToRequester",
+                ["NotificationRules:Mappings:1:EntityType"] = "Loan",
+                ["NotificationRules:Mappings:1:Action"] = "LoanReturned",
+                ["NotificationRules:Mappings:1:Types:0"] = "LoanReturnConfirmedToBorrower",
+                ["NotificationRules:Mappings:1:Types:1"] = "LoanReturnConfirmedToLender"
             };
 
             config.AddInMemoryCollection(settings);

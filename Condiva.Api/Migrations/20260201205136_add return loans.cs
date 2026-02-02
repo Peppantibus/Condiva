@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Condiva.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class addreturnloans : Migration
+    public partial class AddReturnLoans : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

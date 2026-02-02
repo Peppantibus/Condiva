@@ -339,6 +339,72 @@ namespace Condiva.Api.Migrations
                     b.ToTable("Memberships");
                 });
 
+            modelBuilder.Entity("Condiva.Api.Features.Notifications.Models.Notification", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CommunityId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EntityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EntityType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EventId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Payload")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CommunityId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("EventId", "Type", "RecipientUserId")
+                        .IsUnique();
+
+                    b.ToTable("Notifications");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Notifications.Models.NotificationDispatchState", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastProcessedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastProcessedEventId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NotificationDispatchStates");
+                });
+
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>
                 {
                     b.Property<string>("Id")
@@ -589,6 +655,25 @@ namespace Condiva.Api.Migrations
                     b.Navigation("Community");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Condiva.Api.Features.Notifications.Models.Notification", b =>
+                {
+                    b.HasOne("Condiva.Api.Features.Communities.Models.Community", "Community")
+                        .WithMany()
+                        .HasForeignKey("CommunityId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Condiva.Api.Common.Auth.Models.User", "RecipientUser")
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Community");
+
+                    b.Navigation("RecipientUser");
                 });
 
             modelBuilder.Entity("Condiva.Api.Features.Offers.Models.Offer", b =>

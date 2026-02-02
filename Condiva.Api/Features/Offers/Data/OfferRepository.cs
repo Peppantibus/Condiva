@@ -178,9 +178,10 @@ public sealed class OfferRepository : IOfferRepository
             return RepositoryResult<Offer>.Failure(
                 ApiErrors.Invalid("OffererUserId must match the item owner."));
         }
+        Request? request = null;
         if (!string.IsNullOrWhiteSpace(body.RequestId))
         {
-            var request = await _dbContext.Requests.FindAsync(body.RequestId);
+            request = await _dbContext.Requests.FindAsync(body.RequestId);
             if (request is null)
             {
                 return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("RequestId does not exist."));
@@ -200,9 +201,20 @@ public sealed class OfferRepository : IOfferRepository
         {
             body.Id = Guid.NewGuid().ToString();
         }
-        body.CreatedAt = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+        body.CreatedAt = now;
 
         _dbContext.Offers.Add(body);
+        if (request is not null)
+        {
+            _dbContext.Events.Add(CreateEvent(
+                body.CommunityId,
+                actorUserId,
+                "Offer",
+                body.Id,
+                "OfferCreated",
+                now));
+        }
         await _dbContext.SaveChangesAsync();
         var createdOffer = await _dbContext.Offers
             .Include(offer => offer.Community)

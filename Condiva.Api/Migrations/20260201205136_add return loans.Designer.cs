@@ -11,7 +11,7 @@ namespace Condiva.Api.Migrations
 {
     [DbContext(typeof(CondivaDbContext))]
     [Migration("20260201205136_add return loans")]
-    partial class addreturnloans
+    partial class AddReturnLoans
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

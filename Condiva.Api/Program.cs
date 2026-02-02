@@ -5,6 +5,7 @@ using Condiva.Api.Features.Events.Endpoints;
 using Condiva.Api.Features.Items.Endpoints;
 using Condiva.Api.Features.Loans.Endpoints;
 using Condiva.Api.Features.Memberships.Endpoints;
+using Condiva.Api.Features.Notifications.Endpoints;
 using Condiva.Api.Features.Offers.Endpoints;
 using Condiva.Api.Features.Reputations.Endpoints;
 using Condiva.Api.Features.Requests.Endpoints;
@@ -45,6 +46,7 @@ app.MapRequestsEndpoints();
 app.MapOffersEndpoints();
 app.MapLoansEndpoints();
 app.MapEventsEndpoints();
+app.MapNotificationsEndpoints();
 app.MapReputationsEndpoints();
 app.MapControllers();
 

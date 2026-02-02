@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Condiva.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class addentercodecolums : Migration
+    public partial class AddEntercodeColums : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

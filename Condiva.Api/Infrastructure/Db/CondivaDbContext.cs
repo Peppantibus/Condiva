@@ -5,6 +5,7 @@ using Condiva.Api.Features.Events.Models;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Loans.Models;
 using Condiva.Api.Features.Memberships.Models;
+using Condiva.Api.Features.Notifications.Models;
 using Condiva.Api.Features.Offers.Models;
 using Condiva.Api.Features.Reputations.Models;
 using Condiva.Api.Features.Requests.Models;
@@ -26,6 +27,8 @@ public class CondivaDbContext : DbContext
     public DbSet<Offer> Offers => Set<Offer>();
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<Event> Events => Set<Event>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationDispatchState> NotificationDispatchStates => Set<NotificationDispatchState>();
     public DbSet<ReputationProfile> Reputations => Set<ReputationProfile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -45,6 +48,16 @@ public class CondivaDbContext : DbContext
         modelBuilder.Entity<Offer>().HasKey(offer => offer.Id);
         modelBuilder.Entity<Loan>().HasKey(loan => loan.Id);
         modelBuilder.Entity<Event>().HasKey(evt => evt.Id);
+        modelBuilder.Entity<Notification>().HasKey(notification => notification.Id);
+        modelBuilder.Entity<Notification>()
+            .HasIndex(notification => new
+            {
+                notification.EventId,
+                notification.Type,
+                notification.RecipientUserId
+            })
+            .IsUnique();
+        modelBuilder.Entity<NotificationDispatchState>().HasKey(state => state.Id);
         modelBuilder.Entity<ReputationProfile>().HasKey(reputation => reputation.Id);
 
         modelBuilder.Entity<User>()
