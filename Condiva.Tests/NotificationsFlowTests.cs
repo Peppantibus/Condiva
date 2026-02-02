@@ -143,6 +143,25 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         Assert.All(notifications, notification => Assert.NotNull(notification.ReadAt));
     }
 
+    [Fact]
+    public async Task GetUnreadCount_FiltersByCommunity()
+    {
+        var userId = "notif-count";
+        var otherId = "notif-count-other";
+        var communityId = await SeedCommunityWithMembersAsync(userId, otherId);
+        await SeedNotificationAsync(userId, communityId, NotificationType.LoanReservedToBorrower, read: false);
+        await SeedNotificationAsync(userId, communityId, NotificationType.LoanStartedToBorrower, read: true);
+        await SeedNotificationAsync(userId, "other-community", NotificationType.LoanStartedToBorrower, read: false);
+
+        using var client = CreateClientWithToken(userId);
+        var response = await client.GetAsync($"/api/notifications/unread-count?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<UnreadCountResponse>();
+        Assert.NotNull(payload);
+        Assert.Equal(1, payload!.Count);
+    }
+
     private HttpClient CreateClientWithToken(string userId)
     {
         var client = _factory.CreateClient(new()
@@ -355,6 +374,8 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         var processor = scope.ServiceProvider.GetRequiredService<INotificationsProcessor>();
         await processor.ProcessBatchAsync(default);
     }
+
+    private sealed record UnreadCountResponse(int Count);
 
     private string CreateJwt(string userId)
     {

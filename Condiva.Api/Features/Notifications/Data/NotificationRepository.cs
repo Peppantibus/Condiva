@@ -154,4 +154,27 @@ public sealed class NotificationRepository : INotificationRepository
         await _dbContext.SaveChangesAsync();
         return RepositoryResult<IReadOnlyList<Notification>>.Success(notifications);
     }
+
+    public async Task<RepositoryResult<int>> GetUnreadCountAsync(
+        string? communityId,
+        ClaimsPrincipal user)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<int>.Failure(ApiErrors.Unauthorized());
+        }
+
+        var query = _dbContext.Notifications
+            .Where(notification => notification.RecipientUserId == actorUserId
+                && notification.ReadAt == null);
+
+        if (!string.IsNullOrWhiteSpace(communityId))
+        {
+            query = query.Where(notification => notification.CommunityId == communityId);
+        }
+
+        var count = await query.CountAsync();
+        return RepositoryResult<int>.Success(count);
+    }
 }

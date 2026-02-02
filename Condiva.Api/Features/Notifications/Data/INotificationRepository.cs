@@ -17,4 +17,7 @@ public interface INotificationRepository
     Task<RepositoryResult<IReadOnlyList<Notification>>> MarkReadAsync(
         IReadOnlyList<string> ids,
         ClaimsPrincipal user);
+    Task<RepositoryResult<int>> GetUnreadCountAsync(
+        string? communityId,
+        ClaimsPrincipal user);
 }

@@ -93,6 +93,21 @@ public static class NotificationsEndpoints
         })
             .Produces<List<NotificationDetailsDto>>(StatusCodes.Status200OK);
 
+        group.MapGet("/unread-count", async (
+            string? communityId,
+            ClaimsPrincipal user,
+            INotificationRepository repository) =>
+        {
+            var result = await repository.GetUnreadCountAsync(communityId, user);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            return Results.Ok(new { count = result.Data });
+        })
+            .Produces(StatusCodes.Status200OK);
+
         return endpoints;
     }
 }
