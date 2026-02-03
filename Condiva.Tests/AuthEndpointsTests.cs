@@ -47,7 +47,7 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
-    public async Task Login_WithInvalidPassword_ReturnsBadRequest()
+    public async Task Login_WithInvalidPassword_ReturnsUnauthorized()
     {
         using var client = CreateClient();
         var (username, email, _) = await RegisterUserAsync(client);
@@ -58,7 +58,7 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
             Password = "wrong-password"
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]

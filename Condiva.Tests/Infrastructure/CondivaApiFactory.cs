@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Linq;
+using Condiva.Api.Features.Notifications.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
@@ -46,14 +48,7 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
                 ["Redis:Url"] = "",
                 ["NotificationProcessing:Enabled"] = "false",
                 ["NotificationProcessing:PollIntervalSeconds"] = "1",
-                ["NotificationProcessing:BatchSize"] = "50",
-                ["NotificationRules:Mappings:0:EntityType"] = "Offer",
-                ["NotificationRules:Mappings:0:Action"] = "OfferCreated",
-                ["NotificationRules:Mappings:0:Types:0"] = "OfferReceivedToRequester",
-                ["NotificationRules:Mappings:1:EntityType"] = "Loan",
-                ["NotificationRules:Mappings:1:Action"] = "LoanReturned",
-                ["NotificationRules:Mappings:1:Types:0"] = "LoanReturnConfirmedToBorrower",
-                ["NotificationRules:Mappings:1:Types:1"] = "LoanReturnConfirmedToLender"
+                ["NotificationProcessing:BatchSize"] = "50"
             };
 
             config.AddInMemoryCollection(settings);
@@ -70,6 +65,7 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
             using var scope = services.BuildServiceProvider().CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
             dbContext.Database.EnsureCreated();
+            SeedNotificationRules(dbContext);
         });
     }
 
@@ -80,5 +76,37 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
         {
             _connection.Dispose();
         }
+    }
+
+    private static void SeedNotificationRules(CondivaDbContext dbContext)
+    {
+        if (dbContext.NotificationRuleMappings.Any())
+        {
+            return;
+        }
+
+        dbContext.NotificationRuleMappings.AddRange(new[]
+        {
+            new NotificationRule
+            {
+                EntityType = "Offer",
+                Action = "OfferCreated",
+                Type = NotificationType.OfferReceivedToRequester
+            },
+            new NotificationRule
+            {
+                EntityType = "Loan",
+                Action = "LoanReturned",
+                Type = NotificationType.LoanReturnConfirmedToBorrower
+            },
+            new NotificationRule
+            {
+                EntityType = "Loan",
+                Action = "LoanReturned",
+                Type = NotificationType.LoanReturnConfirmedToLender
+            }
+        });
+
+        dbContext.SaveChanges();
     }
 }
