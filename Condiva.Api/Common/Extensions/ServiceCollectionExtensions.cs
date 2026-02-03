@@ -140,7 +140,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IReputationRepository, ReputationRepository>();
         services.AddScoped<IEventRepository, EventRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
-        services.AddSingleton<NotificationRules>();
+        services.AddScoped<NotificationRules>();
         services.AddSingleton<INotificationsProcessor, NotificationsProcessor>();
         services.AddHostedService<NotificationsBackgroundService>();
 

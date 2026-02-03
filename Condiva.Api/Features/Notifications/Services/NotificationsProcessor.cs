@@ -56,7 +56,10 @@ public sealed class NotificationsProcessor : INotificationsProcessor
             return;
         }
 
-        var eventTypes = events.ToDictionary(evt => evt.Id, rules.GetNotificationTypes);
+        var ruleMap = await rules.GetMapAsync(stoppingToken);
+        var eventTypes = events.ToDictionary(
+            evt => evt.Id,
+            evt => rules.GetNotificationTypes(evt, ruleMap));
         var recipientsByEvent = await ResolveRecipientsAsync(dbContext, events, eventTypes, stoppingToken);
         var existingKeys = await LoadExistingNotificationKeysAsync(dbContext, events, stoppingToken);
 

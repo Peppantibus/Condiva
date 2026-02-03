@@ -178,7 +178,7 @@ public static class AuthEndpoints
 
         return kind switch
         {
-            AuthErrorKind.InvalidCredentials => HttpResults.BadRequest(payload),
+            AuthErrorKind.InvalidCredentials => HttpResults.Json(payload, statusCode: StatusCodes.Status401Unauthorized),
             AuthErrorKind.InvalidRefreshToken => HttpResults.Json(payload, statusCode: StatusCodes.Status401Unauthorized),
             AuthErrorKind.Conflict => HttpResults.Conflict(payload),
             AuthErrorKind.Validation => HttpResults.BadRequest(payload),

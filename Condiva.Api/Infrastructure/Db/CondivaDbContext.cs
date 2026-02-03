@@ -28,6 +28,7 @@ public class CondivaDbContext : DbContext
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<Event> Events => Set<Event>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<NotificationRule> NotificationRuleMappings => Set<NotificationRule>();
     public DbSet<NotificationDispatchState> NotificationDispatchStates => Set<NotificationDispatchState>();
     public DbSet<ReputationProfile> Reputations => Set<ReputationProfile>();
 
@@ -49,6 +50,8 @@ public class CondivaDbContext : DbContext
         modelBuilder.Entity<Loan>().HasKey(loan => loan.Id);
         modelBuilder.Entity<Event>().HasKey(evt => evt.Id);
         modelBuilder.Entity<Notification>().HasKey(notification => notification.Id);
+        modelBuilder.Entity<NotificationRule>()
+            .HasKey(rule => new { rule.EntityType, rule.Action, rule.Type });
         modelBuilder.Entity<Notification>()
             .HasIndex(notification => new
             {
