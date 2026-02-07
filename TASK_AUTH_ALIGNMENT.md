@@ -10,7 +10,7 @@
 
 1. `id`: `AUTH-001`
    `title`: Align rate limiting host wiring (DI + middleware + config rules)
-   `status`: `todo`
+   `status`: `done`
    `commit_message`: `fix AUTH-001 enable auth rate limiter in host pipeline`
 
 2. `id`: `AUTH-002`

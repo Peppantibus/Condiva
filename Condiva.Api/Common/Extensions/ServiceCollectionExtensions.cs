@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading.RateLimiting;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -20,6 +21,7 @@ using Condiva.Api.Features.Offers.Data;
 using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Requests.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -84,6 +86,20 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IRegisterService<User>>(),
                 sp.GetRequiredService<IEmailVerificationService<User>>(),
                 sp.GetRequiredService<IPasswordFlowService<User>>()));
+
+        // ASP.NET rate limiter is required because /api/auth endpoints use RequireRateLimiting("auth").
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddFixedWindowLimiter("auth", limiter =>
+            {
+                limiter.PermitLimit = configuration.GetValue<int?>("RateLimit:AuthEndpoint:PermitLimit") ?? 30;
+                limiter.Window = TimeSpan.FromSeconds(
+                    Math.Max(configuration.GetValue<int?>("RateLimit:AuthEndpoint:WindowSeconds") ?? 60, 1));
+                limiter.QueueLimit = 0;
+                limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+            });
+        });
         var jwtSettings = configuration.GetSection("JwtSettings");
         var jwtKey = jwtSettings.GetValue<string>("Key");
         if (string.IsNullOrWhiteSpace(jwtKey))

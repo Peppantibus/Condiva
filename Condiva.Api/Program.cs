@@ -35,6 +35,7 @@ if (corsOrigins)
     app.UseCors("Frontend");
 }
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
