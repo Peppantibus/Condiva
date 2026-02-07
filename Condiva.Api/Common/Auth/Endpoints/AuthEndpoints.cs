@@ -101,6 +101,21 @@ public static class AuthEndpoints
                 })
             .Produces(StatusCodes.Status200OK);
 
+        group.MapGet("/reset/redirect",
+                async (string token, IAuthService<User> auth) =>
+                {
+                    var normalizedToken = Normalize(token);
+                    var validationError = ValidateToken(normalizedToken);
+                    if (validationError is not null)
+                    {
+                        return validationError;
+                    }
+
+                    var result = await auth.ResetPasswordRedirect(normalizedToken!);
+                    return MapResult(result, AuthErrorKind.InvalidToken);
+                })
+            .Produces<bool>(StatusCodes.Status200OK);
+
         group.MapPost("/reset",
                 async (ResetPasswordDto body, IAuthService<User> auth) =>
                 {

@@ -33,3 +33,8 @@
    `status`: `done`
    `commit_message`: `fix AUTH-005 upgrade AuthLibrary.Core to 1.0.5`
    `notes`: `Updated AuthRepository to new IAuthRepository/ITransactionalAuthRepository members; added ExternalAuthLogins persistence + migration; added design-time DbContext factory; fixed DI ambiguity for IAuthService<User>; adjusted RateLimit config for 1.0.5 validation.`
+
+6. `id`: `AUTH-006`
+   `title`: Add missing ResetPasswordRedirect HTTP endpoint
+   `status`: `done`
+   `commit_message`: `fix AUTH-006 add reset password redirect endpoint`
