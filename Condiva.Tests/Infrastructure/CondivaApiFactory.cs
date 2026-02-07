@@ -1,11 +1,9 @@
-using System.Collections.Generic;
 using System.Linq;
 using Condiva.Api.Features.Notifications.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -20,6 +18,22 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
+
+        // WebApplicationFactory does not reliably override configuration early enough with minimal hosting.
+        // Set environment variables so WebApplication.CreateBuilder picks them up.
+        Environment.SetEnvironmentVariable("ConnectionStrings__Default", "DataSource=:memory:");
+        Environment.SetEnvironmentVariable("JwtSettings__Key", "test-test-test-test-test-test-test-test");
+        Environment.SetEnvironmentVariable("JwtSettings__Issuer", "Condiva-Tests");
+        Environment.SetEnvironmentVariable("JwtSettings__Audience", "Condiva-Tests");
+        Environment.SetEnvironmentVariable("JwtSettings__AccessTokenLifetimeMinutes", "15");
+        Environment.SetEnvironmentVariable("SecuritySettings__Pepper", "test-pepper");
+        Environment.SetEnvironmentVariable("MailService__DisableSend", "true");
+        Environment.SetEnvironmentVariable("AuthSettings__AutoVerifyEmail", "true");
+        Environment.SetEnvironmentVariable("TemplateSettings__BasePath", "templates");
+        Environment.SetEnvironmentVariable("RefreshTokenSettings__RefreshTokenLifetimeDays", "30");
+        Environment.SetEnvironmentVariable("NotificationProcessing__Enabled", "false");
+        Environment.SetEnvironmentVariable("NotificationProcessing__PollIntervalSeconds", "1");
+        Environment.SetEnvironmentVariable("NotificationProcessing__BatchSize", "50");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -31,28 +45,6 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
             logging.ClearProviders();
             logging.AddConsole();
             logging.AddDebug();
-        });
-
-        builder.ConfigureAppConfiguration(config =>
-        {
-            var settings = new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Default"] = "DataSource=:memory:",
-                ["JwtSettings:Key"] = "test-test-test-test-test-test-test-test",
-                ["JwtSettings:Issuer"] = "Condiva-Tests",
-                ["JwtSettings:Audience"] = "Condiva-Tests",
-                ["JwtSettings:AccessTokenLifetimeMinutes"] = "15",
-                ["SecuritySettings:Pepper"] = "test-pepper",
-                ["MailService:DisableSend"] = "true",
-                ["AuthSettings:AutoVerifyEmail"] = "true",
-                ["TemplateSettings:BasePath"] = "templates",
-                ["RefreshTokenSettings:RefreshTokenLifetimeDays"] = "30",
-                ["NotificationProcessing:Enabled"] = "false",
-                ["NotificationProcessing:PollIntervalSeconds"] = "1",
-                ["NotificationProcessing:BatchSize"] = "50"
-            };
-
-            config.AddInMemoryCollection(settings);
         });
 
         builder.ConfigureServices(services =>

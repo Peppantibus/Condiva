@@ -25,7 +25,7 @@
 
 4. `id`: `AUTH-004`
    `title`: Harden auth configuration defaults (redis/proxy/rules/placeholders)
-   `status`: `todo`
+   `status`: `done`
    `commit_message`: `fix AUTH-004 harden auth configuration defaults`
 
 5. `id`: `AUTH-005`
