@@ -24,6 +24,8 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment("Development");
+
         builder.ConfigureLogging(logging =>
         {
             logging.ClearProviders();
@@ -45,7 +47,6 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
                 ["AuthSettings:AutoVerifyEmail"] = "true",
                 ["TemplateSettings:BasePath"] = "templates",
                 ["RefreshTokenSettings:RefreshTokenLifetimeDays"] = "30",
-                ["Redis:Url"] = "",
                 ["NotificationProcessing:Enabled"] = "false",
                 ["NotificationProcessing:PollIntervalSeconds"] = "1",
                 ["NotificationProcessing:BatchSize"] = "50"

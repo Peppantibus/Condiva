@@ -17,6 +17,7 @@ public class CondivaDbContext : DbContext
         : base(options) { }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<ExternalAuthLogin> ExternalAuthLogins => Set<ExternalAuthLogin>();
     public DbSet<EmailVerifiedToken> EmailVerifiedTokens => Set<EmailVerifiedToken>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
@@ -39,6 +40,8 @@ public class CondivaDbContext : DbContext
             modelBuilder.HasDefaultSchema("public");
         }
         modelBuilder.Entity<User>().HasKey(user => user.Id);
+        modelBuilder.Entity<ExternalAuthLogin>()
+            .HasKey(login => new { login.Provider, login.Subject });
         modelBuilder.Entity<EmailVerifiedToken>().HasKey(token => token.TokenHash);
         modelBuilder.Entity<PasswordResetToken>().HasKey(token => token.TokenHash);
         modelBuilder.Entity<RefreshToken>().HasKey(token => token.TokenHash);
@@ -77,5 +80,13 @@ public class CondivaDbContext : DbContext
             .HasMany(user => user.RefreshTokens)
             .WithOne()
             .HasForeignKey(token => token.UserId);
+
+        modelBuilder.Entity<ExternalAuthLogin>()
+            .HasIndex(login => login.UserId);
+        modelBuilder.Entity<ExternalAuthLogin>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(login => login.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

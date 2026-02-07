@@ -5,13 +5,31 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Condiva.Api.Common.Auth.Data;
 
-public sealed class AuthRepository : IAuthRepository<User>
+public sealed class AuthRepository : IAuthRepository<User>, ITransactionalAuthRepository<User>
 {
     private readonly CondivaDbContext _dbContext;
 
     public AuthRepository(CondivaDbContext dbContext)
     {
         _dbContext = dbContext;
+    }
+
+    public async Task ExecuteInTransactionAsync(Func<Task> operation)
+    {
+        if (operation is null)
+        {
+            throw new ArgumentNullException(nameof(operation));
+        }
+
+        if (_dbContext.Database.CurrentTransaction is not null)
+        {
+            await operation();
+            return;
+        }
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+        await operation();
+        await transaction.CommitAsync();
     }
 
     public Task<User?> GetUserByUsernameAsync(string username)
@@ -121,6 +139,73 @@ public sealed class AuthRepository : IAuthRepository<User>
         var tokens = _dbContext.RefreshTokens.Where(token => token.UserId == userId);
         _dbContext.RefreshTokens.RemoveRange(tokens);
         return Task.CompletedTask;
+    }
+
+    public async Task<bool> TryRotateRefreshTokenAsync(
+        string oldTokenHash,
+        string newTokenHash,
+        DateTime revokedAt,
+        DateTime newTokenCreatedAt,
+        DateTime newTokenExpiresAt)
+    {
+        var alreadyInTransaction = _dbContext.Database.CurrentTransaction is not null;
+        await using var transaction = alreadyInTransaction
+            ? null
+            : await _dbContext.Database.BeginTransactionAsync();
+
+        var userId = await _dbContext.RefreshTokens
+            .Where(token => token.TokenHash == oldTokenHash)
+            .Select(token => token.UserId)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return false;
+        }
+
+        // Atomic rotation under concurrency:
+        // only one caller can revoke+replace an active token (revokedAt == null && replacedByToken == null).
+        var updated = await _dbContext.RefreshTokens
+            .Where(token =>
+                token.TokenHash == oldTokenHash
+                && token.RevokedAt == null
+                && token.ReplacedByToken == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(token => token.RevokedAt, revokedAt)
+                .SetProperty(token => token.ReplacedByToken, newTokenHash));
+
+        if (updated == 0)
+        {
+            return false;
+        }
+
+        await _dbContext.RefreshTokens.AddAsync(new RefreshToken
+        {
+            TokenHash = newTokenHash,
+            UserId = userId,
+            CreatedAt = newTokenCreatedAt,
+            ExpiresAt = newTokenExpiresAt,
+            RevokedAt = null,
+            ReplacedByToken = null
+        });
+
+        await _dbContext.SaveChangesAsync();
+        if (!alreadyInTransaction)
+        {
+            await transaction!.CommitAsync();
+        }
+
+        return true;
+    }
+
+    public Task<ExternalAuthLogin?> GetExternalLoginAsync(string provider, string subject)
+    {
+        return _dbContext.ExternalAuthLogins
+            .FirstOrDefaultAsync(login => login.Provider == provider && login.Subject == subject);
+    }
+
+    public Task AddExternalLoginAsync(ExternalAuthLogin login)
+    {
+        return _dbContext.ExternalAuthLogins.AddAsync(login).AsTask();
     }
 
     public Task SaveChangesAsync()

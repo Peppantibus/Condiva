@@ -2,6 +2,7 @@ using System;
 using System.Text;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
@@ -72,6 +73,17 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
         services.AddAuthLibrary<User>(configuration);
+
+        // AuthLibrary.Core 1.0.5 registers AuthService<TUser> with multiple valid constructors.
+        // Built-in DI cannot choose and throws "constructors are ambiguous". We force the intended constructor here.
+        services.RemoveAll(typeof(IAuthService<User>));
+        services.AddScoped<IAuthService<User>>(sp =>
+            new AuthLibrary.Services.AuthService<User>(
+                sp.GetRequiredService<ILoginService<User>>(),
+                sp.GetRequiredService<IExternalLoginService<User>>(),
+                sp.GetRequiredService<IRegisterService<User>>(),
+                sp.GetRequiredService<IEmailVerificationService<User>>(),
+                sp.GetRequiredService<IPasswordFlowService<User>>()));
         var jwtSettings = configuration.GetSection("JwtSettings");
         var jwtKey = jwtSettings.GetValue<string>("Key");
         if (string.IsNullOrWhiteSpace(jwtKey))
@@ -102,6 +114,7 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IMailService, NoopMailService>();
         }
         services.AddScoped<IAuthRepository<User>, AuthRepository>();
+        services.AddScoped<ITransactionalAuthRepository<User>, AuthRepository>();
 
         var corsOrigins = configuration.GetSection("Cors:AllowedOrigins")
             .Get<string[]>()?
