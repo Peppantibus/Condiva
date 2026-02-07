@@ -20,7 +20,7 @@
 
 3. `id`: `AUTH-003`
    `title`: Add unique DB constraints for auth users
-   `status`: `todo`
+   `status`: `done`
    `commit_message`: `fix AUTH-003 add unique indexes for username and email`
 
 4. `id`: `AUTH-004`

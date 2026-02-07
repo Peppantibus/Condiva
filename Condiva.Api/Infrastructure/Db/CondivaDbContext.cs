@@ -40,6 +40,8 @@ public class CondivaDbContext : DbContext
             modelBuilder.HasDefaultSchema("public");
         }
         modelBuilder.Entity<User>().HasKey(user => user.Id);
+        modelBuilder.Entity<User>().HasIndex(user => user.Username).IsUnique();
+        modelBuilder.Entity<User>().HasIndex(user => user.Email).IsUnique();
         modelBuilder.Entity<ExternalAuthLogin>()
             .HasKey(login => new { login.Provider, login.Subject });
         modelBuilder.Entity<EmailVerifiedToken>().HasKey(token => token.TokenHash);
