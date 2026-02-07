@@ -11,6 +11,8 @@ namespace Condiva.Api.Common.Auth.Endpoints;
 public static class AuthEndpoints
 {
     private const int MinPasswordLength = 8;
+    private const int MinTokenLength = 32;
+    private const int MaxTokenLength = 2048;
 
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -148,7 +150,7 @@ public static class AuthEndpoints
                 async (RefreshTokenRequest body, ITokenService<User> tokens) =>
                 {
                     var refreshToken = Normalize(body.RefreshToken ?? body.Token);
-                    var validationError = ValidateToken(refreshToken);
+                    var validationError = ValidateRefreshToken(refreshToken);
                     if (validationError is not null)
                     {
                         return validationError;
@@ -162,6 +164,14 @@ public static class AuthEndpoints
             .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
         return endpoints;
+    }
+
+    private static IResult? ValidateRefreshToken(string? token)
+    {
+        var validationError = ValidateToken(token);
+        return validationError is null
+            ? null
+            : ErrorResult(AuthErrorKind.InvalidRefreshToken, "Refresh token is invalid.");
     }
 
     private static IResult MapResult<T>(Result<T> result, AuthErrorKind errorKind)
@@ -267,6 +277,18 @@ public static class AuthEndpoints
         if (string.IsNullOrWhiteSpace(token))
         {
             return ErrorResult(AuthErrorKind.Validation, "Token is required.");
+        }
+
+        if (token.Length < MinTokenLength || token.Length > MaxTokenLength)
+        {
+            return ErrorResult(
+                AuthErrorKind.Validation,
+                $"Token length must be between {MinTokenLength} and {MaxTokenLength} characters.");
+        }
+
+        if (token.Any(char.IsWhiteSpace))
+        {
+            return ErrorResult(AuthErrorKind.Validation, "Token format is invalid.");
         }
 
         return null;

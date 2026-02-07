@@ -15,7 +15,7 @@
 
 2. `id`: `AUTH-002`
    `title`: Harden auth token input validation
-   `status`: `todo`
+   `status`: `done`
    `commit_message`: `fix AUTH-002 enforce token format and length validation`
 
 3. `id`: `AUTH-003`
