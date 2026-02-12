@@ -1,5 +1,6 @@
 using Condiva.Api.Common.Auth.Endpoints;
 using Condiva.Api.Common.Extensions;
+using Condiva.Api.Common.Middleware;
 using Condiva.Api.Features.Communities.Endpoints;
 using Condiva.Api.Features.Events.Endpoints;
 using Condiva.Api.Features.Items.Endpoints;
@@ -37,6 +38,7 @@ if (corsOrigins)
 
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseCsrfProtection();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
