@@ -1,8 +1,13 @@
 using System.Net.Mail;
+using System.Security.Claims;
+using System.Security.Cryptography;
 using AuthLibrary.Interfaces;
 using AuthLibrary.Models;
 using AuthLibrary.Models.Dto.Auth;
+using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Auth.Configuration;
 using Condiva.Api.Common.Auth.Models;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Routing;
 using HttpResults = Microsoft.AspNetCore.Http.Results;
 
@@ -13,6 +18,7 @@ public static class AuthEndpoints
     private const int MinPasswordLength = 8;
     private const int MinTokenLength = 32;
     private const int MaxTokenLength = 2048;
+    internal const string CsrfHeaderName = "X-CSRF-Token";
 
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -21,7 +27,11 @@ public static class AuthEndpoints
             .RequireRateLimiting("auth");
 
         group.MapPost("/login",
-                async (LoginRequest body, IAuthService<User> auth) =>
+                async (
+                    LoginRequest body,
+                    IAuthService<User> auth,
+                    HttpContext httpContext,
+                    IOptions<AuthCookieSettings> authCookieOptions) =>
                 {
                     var username = Normalize(body.Username);
                     var password = Normalize(body.Password);
@@ -32,7 +42,13 @@ public static class AuthEndpoints
                     }
 
                     var result = await auth.Login(username!, password!);
-                    return MapResult(result, AuthErrorKind.InvalidCredentials);
+                    if (!result.IsSuccess)
+                    {
+                        return ErrorResult(AuthErrorKind.InvalidCredentials, result.Error ?? "Login failed.");
+                    }
+
+                    SetAuthCookies(httpContext, result.Value!, authCookieOptions.Value);
+                    return HttpResults.Ok(result.Value);
                 })
             .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
@@ -162,9 +178,16 @@ public static class AuthEndpoints
             .Produces(StatusCodes.Status200OK);
 
         group.MapPost("/refresh",
-                async (RefreshTokenRequest body, ITokenService<User> tokens) =>
+                async (
+                    RefreshTokenRequest? body,
+                    ITokenService<User> tokens,
+                    HttpContext httpContext,
+                    IOptions<AuthCookieSettings> authCookieOptions) =>
                 {
-                    var refreshToken = Normalize(body.RefreshToken ?? body.Token);
+                    var cookieSettings = authCookieOptions.Value;
+                    var refreshTokenFromCookie = ReadCookie(httpContext.Request, cookieSettings.RefreshToken.Name);
+                    var refreshToken = Normalize(refreshTokenFromCookie)
+                        ?? Normalize(body?.RefreshToken ?? body?.Token);
                     var validationError = ValidateRefreshToken(refreshToken);
                     if (validationError is not null)
                     {
@@ -172,11 +195,38 @@ public static class AuthEndpoints
                     }
 
                     var result = await tokens.TryRefreshToken(refreshToken!);
-                    return result.IsSuccess
-                        ? HttpResults.Ok(result.Value)
-                        : ErrorResult(AuthErrorKind.InvalidRefreshToken, result.Error ?? "Refresh token is invalid.");
+                    if (!result.IsSuccess)
+                    {
+                        ClearAuthCookies(httpContext, cookieSettings);
+                        return ErrorResult(
+                            AuthErrorKind.InvalidRefreshToken,
+                            result.Error ?? "Refresh token is invalid.");
+                    }
+
+                    SetAuthCookies(httpContext, result.Value!, cookieSettings);
+                    return HttpResults.Ok(result.Value);
                 })
             .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
+
+        group.MapPost("/logout",
+                async (
+                    ClaimsPrincipal user,
+                    HttpContext httpContext,
+                    IAuthRepository<User> repository,
+                    IOptions<AuthCookieSettings> authCookieOptions) =>
+                {
+                    var userId = CurrentUser.GetUserId(user);
+                    if (!string.IsNullOrWhiteSpace(userId))
+                    {
+                        await repository.RemoveRefreshTokensByUserIdAsync(userId);
+                        await repository.SaveChangesAsync();
+                    }
+
+                    ClearAuthCookies(httpContext, authCookieOptions.Value);
+                    return HttpResults.Ok();
+                })
+            .RequireAuthorization()
+            .Produces(StatusCodes.Status200OK);
 
         return endpoints;
     }
@@ -336,6 +386,80 @@ public static class AuthEndpoints
         }
 
         return property.GetValue(instance) as string;
+    }
+
+    private static string? ReadCookie(HttpRequest request, string cookieName)
+    {
+        return request.Cookies.TryGetValue(cookieName, out var value) ? value : null;
+    }
+
+    private static void SetAuthCookies(
+        HttpContext httpContext,
+        RefreshTokenDto tokenPayload,
+        AuthCookieSettings cookieSettings)
+    {
+        var accessToken = Normalize(tokenPayload.AccessToken?.Token);
+        if (!string.IsNullOrWhiteSpace(accessToken))
+        {
+            AppendCookie(httpContext, cookieSettings.AccessToken, accessToken, cookieSettings.RequireSecure);
+        }
+
+        var refreshToken = Normalize(tokenPayload.NewRefreshToken);
+        if (!string.IsNullOrWhiteSpace(refreshToken))
+        {
+            AppendCookie(httpContext, cookieSettings.RefreshToken, refreshToken, cookieSettings.RequireSecure);
+        }
+
+        var csrfToken = GenerateCsrfToken();
+        AppendCookie(httpContext, cookieSettings.CsrfToken, csrfToken, cookieSettings.RequireSecure);
+        httpContext.Response.Headers[CsrfHeaderName] = csrfToken;
+    }
+
+    private static void ClearAuthCookies(HttpContext httpContext, AuthCookieSettings cookieSettings)
+    {
+        DeleteCookie(httpContext, cookieSettings.AccessToken, cookieSettings.RequireSecure);
+        DeleteCookie(httpContext, cookieSettings.RefreshToken, cookieSettings.RequireSecure);
+        DeleteCookie(httpContext, cookieSettings.CsrfToken, cookieSettings.RequireSecure);
+        httpContext.Response.Headers.Remove(CsrfHeaderName);
+    }
+
+    private static void AppendCookie(
+        HttpContext httpContext,
+        AuthCookieDefinition cookie,
+        string value,
+        bool requireSecure)
+    {
+        var secure = requireSecure || httpContext.Request.IsHttps;
+        httpContext.Response.Cookies.Append(cookie.Name, value, CreateCookieOptions(cookie, secure));
+    }
+
+    private static void DeleteCookie(HttpContext httpContext, AuthCookieDefinition cookie, bool requireSecure)
+    {
+        var secure = requireSecure || httpContext.Request.IsHttps;
+        httpContext.Response.Cookies.Delete(cookie.Name, CreateCookieOptions(cookie, secure));
+    }
+
+    private static CookieOptions CreateCookieOptions(AuthCookieDefinition cookie, bool secure)
+    {
+        return new CookieOptions
+        {
+            HttpOnly = cookie.HttpOnly,
+            Secure = secure,
+            SameSite = cookie.ResolveSameSite(),
+            Path = string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path,
+            Domain = string.IsNullOrWhiteSpace(cookie.Domain) ? null : cookie.Domain,
+            MaxAge = TimeSpan.FromMinutes(Math.Max(cookie.MaxAgeMinutes, 1))
+        };
+    }
+
+    private static string GenerateCsrfToken()
+    {
+        Span<byte> data = stackalloc byte[32];
+        RandomNumberGenerator.Fill(data);
+        return Convert.ToBase64String(data)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 
     private enum AuthErrorKind
