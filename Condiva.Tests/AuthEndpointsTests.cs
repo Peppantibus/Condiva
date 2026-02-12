@@ -1,14 +1,21 @@
 using System;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using Condiva.Tests.Infrastructure;
 using AuthLibrary.Configuration;
+using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Auth.Configuration;
+using Condiva.Api.Common.Auth.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Condiva.Tests;
 
@@ -74,6 +81,124 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Login_WithValidCredentials_SetsAuthCookiesAndCsrfHeader()
+    {
+        using var client = CreateClient();
+        var (username, _, password) = await RegisterUserAsync(client);
+
+        var response = await client.PostAsJsonAsync("/api/auth/login", new
+        {
+            Username = username,
+            Password = password
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var cookieSettings = GetAuthCookieSettings();
+
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookieValues));
+        var setCookies = setCookieValues!.ToArray();
+        Assert.Contains(setCookies, cookie => HasCookieAttributes(
+            cookie,
+            cookieSettings.AccessToken.Name,
+            "HttpOnly",
+            "Secure",
+            "SameSite=Lax",
+            "Path=/"));
+        Assert.Contains(setCookies, cookie => HasCookieAttributes(
+            cookie,
+            cookieSettings.RefreshToken.Name,
+            "HttpOnly",
+            "Secure",
+            "SameSite=Strict",
+            "Path=/api/auth/refresh"));
+        Assert.Contains(setCookies, cookie => HasCookieAttributes(
+            cookie,
+            cookieSettings.CsrfToken.Name,
+            "Secure",
+            "SameSite=Strict",
+            "Path=/"));
+
+        Assert.True(response.Headers.TryGetValues(AuthSecurityHeaders.CsrfToken, out var csrfHeaderValues));
+        Assert.False(string.IsNullOrWhiteSpace(csrfHeaderValues!.SingleOrDefault()));
+    }
+
+    [Fact]
+    public async Task Refresh_WithCookieOnly_ReturnsOk()
+    {
+        using var client = CreateClient();
+        var (username, _, password) = await RegisterUserAsync(client);
+        var cookieSettings = GetAuthCookieSettings();
+
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new
+        {
+            Username = username,
+            Password = password
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        var refreshCookie = ExtractCookie(loginResponse, cookieSettings.RefreshToken.Name);
+        var refreshRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh")
+        {
+            Content = JsonContent.Create(new { })
+        };
+        refreshRequest.Headers.Add("Cookie", refreshCookie);
+        refreshRequest.Headers.Add("Origin", "http://localhost:5173");
+
+        var refreshResponse = await client.SendAsync(refreshRequest);
+
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+        Assert.True(refreshResponse.Headers.TryGetValues("Set-Cookie", out var refreshSetCookieValues));
+        Assert.Contains(refreshSetCookieValues!, cookie => cookie.StartsWith(
+            $"{cookieSettings.RefreshToken.Name}=",
+            StringComparison.OrdinalIgnoreCase));
+        Assert.True(refreshResponse.Headers.TryGetValues(AuthSecurityHeaders.CsrfToken, out var csrfHeaderValues));
+        Assert.False(string.IsNullOrWhiteSpace(csrfHeaderValues!.SingleOrDefault()));
+    }
+
+    [Fact]
+    public async Task ProtectedEndpoint_WithAccessCookie_ReturnsSuccess()
+    {
+        var userId = $"cookie-user-{Guid.NewGuid():N}";
+        await SeedStandaloneUserAsync(userId);
+
+        using var client = CreateClient();
+        var token = CreateJwt(userId);
+        var cookieSettings = GetAuthCookieSettings();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/notifications/unread-count");
+        request.Headers.Add("Cookie", $"{cookieSettings.AccessToken.Name}={token}");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProtectedPost_WithAccessCookieAndMissingCsrfHeader_IsRejected()
+    {
+        var userId = $"csrf-user-{Guid.NewGuid():N}";
+        await SeedStandaloneUserAsync(userId);
+
+        using var client = CreateClient();
+        var token = CreateJwt(userId);
+        var cookieSettings = GetAuthCookieSettings();
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/communities")
+        {
+            Content = JsonContent.Create(new
+            {
+                Name = "CSRF Test Community",
+                Slug = $"csrf-{Guid.NewGuid():N}",
+                CreatedByUserId = userId
+            })
+        };
+        request.Headers.Add("Cookie", $"{cookieSettings.AccessToken.Name}={token}");
+        request.Headers.Add("Origin", "http://localhost:5173");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
     private HttpClient CreateClient()
     {
         return _factory.CreateClient(new()
@@ -130,5 +255,100 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         }
 
         return (username, email, password);
+    }
+
+    private AuthCookieSettings GetAuthCookieSettings()
+    {
+        using var scope = _factory.Services.CreateScope();
+        return scope.ServiceProvider
+            .GetRequiredService<IOptions<AuthCookieSettings>>()
+            .Value;
+    }
+
+    private static bool HasCookieAttributes(string cookie, string cookieName, params string[] requiredAttributes)
+    {
+        if (!cookie.StartsWith($"{cookieName}=", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        foreach (var attribute in requiredAttributes)
+        {
+            if (!cookie.Contains(attribute, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string ExtractCookie(HttpResponseMessage response, string cookieName)
+    {
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookieValues))
+        {
+            throw new Xunit.Sdk.XunitException("Expected Set-Cookie headers but none were returned.");
+        }
+
+        var matching = setCookieValues.FirstOrDefault(value =>
+            value.StartsWith($"{cookieName}=", StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(matching))
+        {
+            throw new Xunit.Sdk.XunitException($"Expected cookie '{cookieName}' in Set-Cookie headers.");
+        }
+
+        var separator = matching.IndexOf(';');
+        return separator < 0 ? matching : matching[..separator];
+    }
+
+    private async Task SeedStandaloneUserAsync(string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var existing = await dbContext.Users.FindAsync(userId);
+        if (existing is not null)
+        {
+            return;
+        }
+
+        dbContext.Users.Add(new User
+        {
+            Id = userId,
+            Username = $"user-{userId}",
+            Email = $"{userId}@example.com",
+            Password = "hashed-password",
+            Salt = "salt",
+            EmailVerified = true,
+            Name = "Cookie",
+            LastName = "Tester",
+            PasswordUpdatedAt = DateTime.UtcNow
+        });
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private string CreateJwt(string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var options = scope.ServiceProvider
+            .GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+
+        var signingKey = options.TokenValidationParameters.IssuerSigningKey
+            ?? throw new InvalidOperationException("Jwt signing key missing.");
+        var issuer = options.TokenValidationParameters.ValidIssuer;
+        var audience = options.TokenValidationParameters.ValidAudience;
+        var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, userId) };
+
+        var token = new JwtSecurityToken(
+            issuer: issuer,
+            audience: audience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddMinutes(5),
+            signingCredentials: credentials);
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }
