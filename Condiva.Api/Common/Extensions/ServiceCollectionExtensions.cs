@@ -3,6 +3,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
+using Condiva.Api.Common.Auth;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Condiva.Api.Common.Auth.Configuration;
 using Condiva.Api.Common.Auth.Data;
@@ -103,6 +104,8 @@ public static class ServiceCollectionExtensions
             });
         });
         var jwtSettings = configuration.GetSection("JwtSettings");
+        var authCookieSettings = configuration.GetSection("AuthCookies").Get<AuthCookieSettings>()
+            ?? new AuthCookieSettings();
         var jwtKey = jwtSettings.GetValue<string>("Key");
         if (string.IsNullOrWhiteSpace(jwtKey))
         {
@@ -125,6 +128,24 @@ public static class ServiceCollectionExtensions
                 ValidAudience = jwtSettings.GetValue<string>("Audience"),
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
                 ClockSkew = TimeSpan.FromMinutes(1)
+            };
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    if (!string.IsNullOrWhiteSpace(context.Request.Headers.Authorization))
+                    {
+                        return Task.CompletedTask;
+                    }
+
+                    if (context.Request.Cookies.TryGetValue(authCookieSettings.AccessToken.Name, out var token)
+                        && !string.IsNullOrWhiteSpace(token))
+                    {
+                        context.Token = token;
+                    }
+
+                    return Task.CompletedTask;
+                }
             };
         });
         if (configuration.GetValue<bool>("MailService:DisableSend"))
@@ -156,8 +177,10 @@ public static class ServiceCollectionExtensions
                 options.AddPolicy("Frontend", policy =>
                 {
                     policy.WithOrigins(corsOrigins)
+                        .AllowCredentials()
                         .AllowAnyHeader()
-                        .AllowAnyMethod();
+                        .AllowAnyMethod()
+                        .WithExposedHeaders(AuthSecurityHeaders.CsrfToken);
                 });
             });
         }

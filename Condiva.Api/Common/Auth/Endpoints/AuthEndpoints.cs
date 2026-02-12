@@ -18,7 +18,6 @@ public static class AuthEndpoints
     private const int MinPasswordLength = 8;
     private const int MinTokenLength = 32;
     private const int MaxTokenLength = 2048;
-    internal const string CsrfHeaderName = "X-CSRF-Token";
 
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -412,7 +411,7 @@ public static class AuthEndpoints
 
         var csrfToken = GenerateCsrfToken();
         AppendCookie(httpContext, cookieSettings.CsrfToken, csrfToken, cookieSettings.RequireSecure);
-        httpContext.Response.Headers[CsrfHeaderName] = csrfToken;
+        httpContext.Response.Headers[AuthSecurityHeaders.CsrfToken] = csrfToken;
     }
 
     private static void ClearAuthCookies(HttpContext httpContext, AuthCookieSettings cookieSettings)
@@ -420,7 +419,7 @@ public static class AuthEndpoints
         DeleteCookie(httpContext, cookieSettings.AccessToken, cookieSettings.RequireSecure);
         DeleteCookie(httpContext, cookieSettings.RefreshToken, cookieSettings.RequireSecure);
         DeleteCookie(httpContext, cookieSettings.CsrfToken, cookieSettings.RequireSecure);
-        httpContext.Response.Headers.Remove(CsrfHeaderName);
+        httpContext.Response.Headers.Remove(AuthSecurityHeaders.CsrfToken);
     }
 
     private static void AppendCookie(
