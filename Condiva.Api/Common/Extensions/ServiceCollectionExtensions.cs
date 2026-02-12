@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using AuthLibrary.Extensions;
 using AuthLibrary.Interfaces;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Condiva.Api.Common.Auth.Configuration;
 using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
@@ -74,6 +75,7 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddHttpContextAccessor();
+        services.Configure<AuthCookieSettings>(configuration.GetSection("AuthCookies"));
         services.AddAuthLibrary<User>(configuration);
 
         // AuthLibrary.Core 1.0.5 registers AuthService<TUser> with multiple valid constructors.
