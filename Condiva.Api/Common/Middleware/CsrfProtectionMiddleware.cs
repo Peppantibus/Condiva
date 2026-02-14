@@ -9,6 +9,7 @@ public sealed class CsrfProtectionMiddleware
     private static readonly string[] TokenExemptPaths =
     [
         "/api/auth/login",
+        "/api/auth/google",
         "/api/auth/register",
         "/api/auth/recovery",
         "/api/auth/reset",

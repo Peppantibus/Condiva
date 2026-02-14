@@ -77,6 +77,7 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
         services.Configure<AuthCookieSettings>(configuration.GetSection("AuthCookies"));
+        services.AddScoped<IExternalUserFactory<User>, ExternalUserFactory>();
         services.AddAuthLibrary<User>(configuration);
 
         // AuthLibrary.Core 1.0.5 registers AuthService<TUser> with multiple valid constructors.
@@ -102,6 +103,12 @@ public static class ServiceCollectionExtensions
                 limiter.QueueLimit = 0;
                 limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
             });
+        });
+        services.AddHsts(options =>
+        {
+            options.MaxAge = TimeSpan.FromDays(730);
+            options.IncludeSubDomains = true;
+            options.Preload = true;
         });
         var jwtSettings = configuration.GetSection("JwtSettings");
         var authCookieSettings = configuration.GetSection("AuthCookies").Get<AuthCookieSettings>()
@@ -158,7 +165,7 @@ public static class ServiceCollectionExtensions
         var corsOrigins = configuration.GetSection("Cors:AllowedOrigins")
             .Get<string[]>()?
             .Where(origin => !string.IsNullOrWhiteSpace(origin))
-            .Select(origin => origin.Trim())
+            .Select(origin => origin.Trim().TrimEnd('/'))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? Array.Empty<string>();
         if (corsOrigins.Length == 0)
@@ -166,21 +173,28 @@ public static class ServiceCollectionExtensions
             var frontendUrl = configuration.GetValue<string>("AuthSettings:FrontendUrl");
             if (!string.IsNullOrWhiteSpace(frontendUrl))
             {
-                corsOrigins = new[] { frontendUrl.Trim() };
+                corsOrigins = new[] { frontendUrl.Trim().TrimEnd('/') };
             }
         }
 
         if (corsOrigins.Length > 0)
         {
+            if (corsOrigins.Any(origin => origin.Contains('*')))
+            {
+                throw new InvalidOperationException(
+                    "Cors:AllowedOrigins must not contain wildcard values when credentials are enabled.");
+            }
+
             services.AddCors(options =>
             {
                 options.AddPolicy("Frontend", policy =>
                 {
                     policy.WithOrigins(corsOrigins)
+                        .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                        .WithHeaders("Content-Type", "Authorization", AuthSecurityHeaders.CsrfToken)
+                        .WithExposedHeaders(AuthSecurityHeaders.CsrfToken, "WWW-Authenticate")
                         .AllowCredentials()
-                        .AllowAnyHeader()
-                        .AllowAnyMethod()
-                        .WithExposedHeaders(AuthSecurityHeaders.CsrfToken);
+                        .SetPreflightMaxAge(TimeSpan.FromHours(1));
                 });
             });
         }

@@ -51,6 +51,44 @@ public static class AuthEndpoints
                 })
             .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
+        group.MapPost("/google",
+                async (
+                    GoogleLoginRequest body,
+                    IAuthService<User> auth,
+                    HttpContext httpContext,
+                    IOptions<AuthCookieSettings> authCookieOptions,
+                    ILoggerFactory loggerFactory) =>
+                {
+                    var logger = loggerFactory.CreateLogger("Auth.GoogleLogin");
+                    var idToken = Normalize(body.IdToken)
+                        ?? Normalize(body.Credential)
+                        ?? Normalize(body.Token);
+                    var expectedNonce = Normalize(body.ExpectedNonce) ?? Normalize(body.Nonce);
+                    var validationError = ValidateToken(idToken);
+                    if (validationError is not null)
+                    {
+                        return validationError;
+                    }
+
+                    var result = await auth.ExternalLoginWithGoogle(idToken!, expectedNonce);
+                    if (!result.IsSuccess)
+                    {
+                        var error = result.Error ?? "Google login failed.";
+                        var errorCode = result.GetType().GetProperty("ErrorCode")?.GetValue(result)?.ToString();
+                        logger.LogWarning("Google login failed: {Error}", error);
+                        if (!string.IsNullOrWhiteSpace(errorCode))
+                        {
+                            logger.LogWarning("Google login error code: {ErrorCode}", errorCode);
+                        }
+
+                        return ErrorResult(AuthErrorKind.InvalidToken, error);
+                    }
+
+                    SetAuthCookies(httpContext, result.Value!, authCookieOptions.Value);
+                    return HttpResults.Ok(result.Value);
+                })
+            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
+
         group.MapPost("/register",
                 async (
                     RegisterRequest body,
@@ -479,4 +517,10 @@ public static class AuthEndpoints
     public sealed record RecoveryRequest(string Email);
     public sealed record ResendVerificationRequest(string Email);
     public sealed record RefreshTokenRequest(string? RefreshToken, string? Token);
+    public sealed record GoogleLoginRequest(
+        string? IdToken,
+        string? Credential,
+        string? Token,
+        string? ExpectedNonce,
+        string? Nonce);
 }

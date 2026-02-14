@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using Condiva.Api.Common.Auth.Endpoints;
 using Condiva.Api.Common.Extensions;
 using Condiva.Api.Common.Middleware;
@@ -10,8 +11,14 @@ using Condiva.Api.Features.Notifications.Endpoints;
 using Condiva.Api.Features.Offers.Endpoints;
 using Condiva.Api.Features.Reputations.Endpoints;
 using Condiva.Api.Features.Requests.Endpoints;
+using Microsoft.IdentityModel.JsonWebTokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// AuthLibrary Google validator reads raw JWT claim names (sub, email, nonce, ...).
+// Disable inbound claim mapping globally to preserve original claim types.
+JwtSecurityTokenHandler.DefaultMapInboundClaims = false;
+JsonWebTokenHandler.DefaultMapInboundClaims = false;
 
 builder.Services.AddCondivaServices(builder.Configuration);
 
@@ -31,9 +38,8 @@ if (app.Environment.IsDevelopment())
 else
 {
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
-
-app.UseHttpsRedirection();
 app.UseSecurityHeaders();
 
 if (corsOrigins)

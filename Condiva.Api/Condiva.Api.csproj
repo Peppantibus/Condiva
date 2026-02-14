@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>b45555fa-65e2-4e53-89a7-42afedf61d60</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
