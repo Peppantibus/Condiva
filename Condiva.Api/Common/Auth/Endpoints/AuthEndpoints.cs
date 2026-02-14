@@ -219,8 +219,11 @@ public static class AuthEndpoints
                     RefreshTokenRequest? body,
                     ITokenService<User> tokens,
                     HttpContext httpContext,
-                    IOptions<AuthCookieSettings> authCookieOptions) =>
+                    IOptions<AuthCookieSettings> authCookieOptions,
+                    IConfiguration configuration,
+                    ILoggerFactory loggerFactory) =>
                 {
+                    var logger = loggerFactory.CreateLogger("Auth.Refresh");
                     var cookieSettings = authCookieOptions.Value;
                     var refreshTokenFromCookie = ReadCookie(httpContext.Request, cookieSettings.RefreshToken.Name);
                     var refreshToken = Normalize(refreshTokenFromCookie)
@@ -234,7 +237,18 @@ public static class AuthEndpoints
                     var result = await tokens.TryRefreshToken(refreshToken!);
                     if (!result.IsSuccess)
                     {
-                        ClearAuthCookies(httpContext, cookieSettings);
+                        var clearCookiesOnFailure =
+                            configuration.GetValue<bool?>("AuthSettings:ClearCookiesOnRefreshFailure") ?? true;
+                        if (clearCookiesOnFailure)
+                        {
+                            ClearAuthCookies(httpContext, cookieSettings);
+                        }
+                        else
+                        {
+                            logger.LogInformation(
+                                "Refresh token failed; preserving cookies because AuthSettings:ClearCookiesOnRefreshFailure=false.");
+                        }
+
                         return ErrorResult(
                             AuthErrorKind.InvalidRefreshToken,
                             result.Error ?? "Refresh token is invalid.");
