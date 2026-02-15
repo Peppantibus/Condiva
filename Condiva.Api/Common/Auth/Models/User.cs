@@ -15,6 +15,7 @@ public class User : IAuthUser
     public DateTime? PasswordUpdatedAt { get; set; }
     public string Name { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
+    public string? ProfileImageKey { get; set; }
 
     public ICollection<EmailVerifiedToken> EmailVerifiedTokens { get; set; } =
         new List<EmailVerifiedToken>();

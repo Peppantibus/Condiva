@@ -22,6 +22,7 @@ using Condiva.Api.Features.Notifications.Services;
 using Condiva.Api.Features.Offers.Data;
 using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Requests.Data;
+using Condiva.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -161,6 +162,8 @@ public static class ServiceCollectionExtensions
         }
         services.AddScoped<IAuthRepository<User>, AuthRepository>();
         services.AddScoped<ITransactionalAuthRepository<User>, AuthRepository>();
+        services.Configure<CloudFlareR2Options>(configuration.GetSection("CloudFlareR2"));
+        services.AddSingleton<IR2StorageService, R2StorageService>();
 
         var corsOrigins = configuration.GetSection("Cors:AllowedOrigins")
             .Get<string[]>()?

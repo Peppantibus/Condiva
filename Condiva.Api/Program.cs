@@ -11,6 +11,8 @@ using Condiva.Api.Features.Notifications.Endpoints;
 using Condiva.Api.Features.Offers.Endpoints;
 using Condiva.Api.Features.Reputations.Endpoints;
 using Condiva.Api.Features.Requests.Endpoints;
+using Condiva.Api.Features.Storage.Endpoints;
+using Condiva.Api.Features.Users.Endpoints;
 using Microsoft.IdentityModel.JsonWebTokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -53,6 +55,7 @@ app.UseCsrfProtection();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapUsersEndpoints();
 app.MapCommunitiesEndpoints();
 app.MapMembershipsEndpoints();
 app.MapItemsEndpoints();
@@ -62,6 +65,7 @@ app.MapLoansEndpoints();
 app.MapEventsEndpoints();
 app.MapNotificationsEndpoints();
 app.MapReputationsEndpoints();
+app.MapStorageEndpoints();
 app.MapControllers();
 
 app.Run();
