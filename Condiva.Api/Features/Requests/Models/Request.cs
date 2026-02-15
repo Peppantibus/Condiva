@@ -12,6 +12,7 @@ public sealed class Request
     public string RequesterUserId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? ImageKey { get; set; }
     public RequestStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? NeededFrom { get; set; }

@@ -8,6 +8,7 @@ public sealed record RequestDetailsDto(
     string RequesterUserId,
     string Title,
     string Description,
+    string? ImageKey,
     string Status,
     DateTime CreatedAt,
     DateTime? NeededFrom,

@@ -1,12 +1,16 @@
-using Condiva.Api.Common.Dtos;
+﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Offers.Models;
 using Condiva.Api.Features.Requests.Data;
 using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
+using Condiva.Api.Features.Storage.Dtos;
+using Condiva.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
@@ -14,6 +18,8 @@ namespace Condiva.Api.Features.Requests.Endpoints;
 
 public static class RequestsEndpoints
 {
+    private const int DownloadPresignTtlSeconds = 300;
+
     public static IEndpointRouteBuilder MapRequestsEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -207,6 +213,286 @@ public static class RequestsEndpoints
         })
             .Produces(StatusCodes.Status204NoContent);
 
+        group.MapPost("/{id}/image/presign", async (
+            string id,
+            StoragePresignRequestDto body,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var request = await dbContext.Requests.FirstOrDefaultAsync(foundRequest => foundRequest.Id == id);
+            if (request is null)
+            {
+                return ApiErrors.NotFound("Request");
+            }
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == request.CommunityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active);
+            if (membership is null)
+            {
+                return ApiErrors.Invalid("User is not a member of the community.");
+            }
+
+            if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
+            {
+                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+            }
+
+            if (request.Status != RequestStatus.Open)
+            {
+                return ApiErrors.Invalid("Request image can be managed only while request is open.");
+            }
+
+            if (string.IsNullOrWhiteSpace(body.FileName))
+            {
+                return ApiErrors.Required(nameof(body.FileName));
+            }
+
+            if (!StorageImageKeyHelper.IsAllowedImageContentType(body.ContentType))
+            {
+                return ApiErrors.Invalid("Unsupported contentType.");
+            }
+
+            var scope = $"requests/{request.Id}/image";
+            var objectKey = StorageImageKeyHelper.BuildScopedObjectKey(
+                scope,
+                StorageImageKeyHelper.SanitizeFileName(body.FileName));
+            var uploadUrl = storageService.GeneratePresignedPutUrl(
+                objectKey,
+                body.ContentType.Trim(),
+                storageService.DefaultPresignTtlSeconds);
+
+            return Results.Ok(new StoragePresignResponseDto(
+                objectKey,
+                uploadUrl,
+                storageService.DefaultPresignTtlSeconds));
+        })
+            .Produces<StoragePresignResponseDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id}/image/confirm", async (
+            string id,
+            StorageConfirmRequestDto body,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            if (!StorageImageKeyHelper.TryNormalizeObjectKey(body.ObjectKey, out var objectKey))
+            {
+                return ApiErrors.Invalid("Invalid objectKey.");
+            }
+
+            var request = await dbContext.Requests.FirstOrDefaultAsync(foundRequest => foundRequest.Id == id, cancellationToken);
+            if (request is null)
+            {
+                return ApiErrors.NotFound("Request");
+            }
+
+            var scope = $"requests/{request.Id}/image";
+            if (!StorageImageKeyHelper.IsScopedKey(objectKey, scope))
+            {
+                return ApiErrors.Invalid("objectKey is outside allowed scope.");
+            }
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == request.CommunityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active,
+                cancellationToken);
+            if (membership is null)
+            {
+                return ApiErrors.Invalid("User is not a member of the community.");
+            }
+
+            if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
+            {
+                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+            }
+
+            if (request.Status != RequestStatus.Open)
+            {
+                return ApiErrors.Invalid("Request image can be managed only while request is open.");
+            }
+
+            var previousObjectKey = request.ImageKey;
+            request.ImageKey = objectKey;
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            await TryDeletePreviousObjectAsync(
+                previousObjectKey,
+                objectKey,
+                storageService,
+                loggerFactory.CreateLogger("Requests.Image"),
+                cancellationToken);
+
+            return Results.Ok(new { objectKey });
+        })
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id}/image", async (
+            string id,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var request = await dbContext.Requests.FirstOrDefaultAsync(foundRequest => foundRequest.Id == id);
+            if (request is null)
+            {
+                return ApiErrors.NotFound("Request");
+            }
+
+            var isMember = await dbContext.Memberships.AnyAsync(membership =>
+                membership.CommunityId == request.CommunityId
+                && membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active);
+            if (!isMember)
+            {
+                return ApiErrors.Invalid("User is not a member of the community.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.ImageKey))
+            {
+                return ApiErrors.NotFound("RequestImage");
+            }
+
+            var downloadUrl = storageService.GeneratePresignedGetUrl(request.ImageKey, DownloadPresignTtlSeconds);
+            return Results.Ok(new RequestImageResponseDto(request.ImageKey, downloadUrl));
+        })
+            .Produces<RequestImageResponseDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{id}/image", async (
+            string id,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService,
+            ILoggerFactory loggerFactory,
+            CancellationToken cancellationToken) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var request = await dbContext.Requests.FirstOrDefaultAsync(foundRequest => foundRequest.Id == id, cancellationToken);
+            if (request is null)
+            {
+                return ApiErrors.NotFound("Request");
+            }
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == request.CommunityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active,
+                cancellationToken);
+            if (membership is null)
+            {
+                return ApiErrors.Invalid("User is not a member of the community.");
+            }
+
+            if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
+            {
+                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+            }
+
+            if (request.Status != RequestStatus.Open)
+            {
+                return ApiErrors.Invalid("Request image can be managed only while request is open.");
+            }
+
+            var previousObjectKey = request.ImageKey;
+            if (string.IsNullOrWhiteSpace(previousObjectKey))
+            {
+                return Results.NoContent();
+            }
+
+            request.ImageKey = null;
+            await dbContext.SaveChangesAsync(cancellationToken);
+
+            var logger = loggerFactory.CreateLogger("Requests.Image");
+            try
+            {
+                await storageService.DeleteObjectAsync(previousObjectKey, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed deleting request image from R2. key: {ObjectKey}", previousObjectKey);
+            }
+
+            return Results.NoContent();
+        })
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status404NotFound);
+
         return endpoints;
     }
+
+    private static bool CanManageRequest(Membership membership, string requesterUserId, string actorUserId)
+    {
+        return membership.Role is MembershipRole.Owner or MembershipRole.Moderator
+            || string.Equals(requesterUserId, actorUserId, StringComparison.Ordinal);
+    }
+
+    private static string? GetUserId(ClaimsPrincipal user)
+    {
+        return user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? user.FindFirst("sub")?.Value;
+    }
+
+    private static async Task TryDeletePreviousObjectAsync(
+        string? previousObjectKey,
+        string currentObjectKey,
+        IR2StorageService storageService,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(previousObjectKey)
+            || string.Equals(previousObjectKey, currentObjectKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            await storageService.DeleteObjectAsync(previousObjectKey, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed deleting previous request image from R2. key: {ObjectKey}", previousObjectKey);
+        }
+    }
+
+    public sealed record RequestImageResponseDto(string ObjectKey, string DownloadUrl);
 }
