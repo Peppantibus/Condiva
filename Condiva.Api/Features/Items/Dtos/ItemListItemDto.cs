@@ -9,6 +9,7 @@ public sealed record ItemListItemDto(
     string Name,
     string Description,
     string? Category,
+    string? ImageKey,
     string Status,
     DateTime CreatedAt,
     DateTime? UpdatedAt,

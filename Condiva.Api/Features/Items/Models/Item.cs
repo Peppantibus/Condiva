@@ -13,6 +13,7 @@ public sealed class Item
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string? Category { get; set; }
+    public string? ImageKey { get; set; }
     public ItemStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
