@@ -12,6 +12,7 @@ public static class CommunityMappings
             community.Name,
             community.Slug,
             community.Description,
+            community.ImageKey,
             community.CreatedByUserId,
             community.CreatedAt));
 
@@ -20,6 +21,7 @@ public static class CommunityMappings
             community.Name,
             community.Slug,
             community.Description,
+            community.ImageKey,
             community.CreatedByUserId,
             community.CreatedAt));
 

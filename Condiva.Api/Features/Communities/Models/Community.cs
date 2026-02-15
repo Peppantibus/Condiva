@@ -20,6 +20,7 @@ public sealed class Community
     public string EnterCode { get; set; } = string.Empty;
     [JsonIgnore]
     public DateTime EnterCodeExpiresAt { get; set; }
+    public string? ImageKey { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public ICollection<Membership> Memberships { get; set; } = new List<Membership>();

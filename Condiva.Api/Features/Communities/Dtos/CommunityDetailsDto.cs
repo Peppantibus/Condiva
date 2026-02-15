@@ -5,5 +5,6 @@ public sealed record CommunityDetailsDto(
     string Name,
     string Slug,
     string? Description,
+    string? ImageKey,
     string CreatedByUserId,
     DateTime CreatedAt);
