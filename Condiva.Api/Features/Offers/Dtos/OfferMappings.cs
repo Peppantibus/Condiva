@@ -2,6 +2,7 @@ using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Offers.Models;
 
 namespace Condiva.Api.Features.Offers.Dtos;
@@ -16,6 +17,7 @@ public static class OfferMappings
             offer.OffererUserId,
             offer.RequestId,
             offer.ItemId,
+            BuildItemSummary(offer.Item, offer.ItemId),
             offer.Message,
             offer.Status.ToString(),
             offer.CreatedAt,
@@ -28,6 +30,7 @@ public static class OfferMappings
             offer.OffererUserId,
             offer.RequestId,
             offer.ItemId,
+            BuildItemSummary(offer.Item, offer.ItemId),
             offer.Message,
             offer.Status.ToString(),
             offer.CreatedAt,
@@ -73,5 +76,25 @@ public static class OfferMappings
         }
 
         return new CommunitySummaryDto(community.Id, community.Name, community.Slug);
+    }
+
+    private static OfferItemSummaryDto BuildItemSummary(Item? item, string fallbackItemId)
+    {
+        if (item is null)
+        {
+            return new OfferItemSummaryDto(
+                fallbackItemId,
+                string.Empty,
+                null,
+                string.Empty,
+                new UserSummaryDto(string.Empty, string.Empty, string.Empty, null));
+        }
+
+        return new OfferItemSummaryDto(
+            item.Id,
+            item.Name,
+            item.ImageKey,
+            item.Status.ToString(),
+            BuildUserSummary(item.OwnerUser, item.OwnerUserId));
     }
 }

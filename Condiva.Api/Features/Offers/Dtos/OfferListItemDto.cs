@@ -8,6 +8,7 @@ public sealed record OfferListItemDto(
     string OffererUserId,
     string? RequestId,
     string ItemId,
+    OfferItemSummaryDto Item,
     string? Message,
     string Status,
     DateTime CreatedAt,

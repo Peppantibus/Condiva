@@ -37,8 +37,8 @@ Regola stato:
   - Status: DONE
   - Scope: `GET /api/communities/{id}/members` con `page,pageSize,search,role,status`
 
-- [ ] Request offers include item summary
-  - Status: TODO
+- [x] Request offers include item summary
+  - Status: DONE
   - Scope: `GET /api/requests/{id}/offers` include item summary completo
 
 - [ ] Dashboard aggregate endpoint
@@ -92,3 +92,4 @@ Regola stato:
 - 2026-02-17: completato `CSRF/session contract hardening` (error envelope uniforme nel middleware CSRF, logout protetto da CSRF, endpoint rotazione token CSRF, CORS origin allowlist centralizzata).
 - 2026-02-17: completato `Idempotency-Key on critical POST` (middleware su POST critici con replay response persistita, conflitto su payload differente, CORS aggiornato per header Idempotency-Key).
 - 2026-02-17: completato `Members endpoint per community, paginato e filtrabile` (nuovo `GET /api/communities/{id}/members` con filtri `search/role/status`, payload user+reputation, paginazione server-side e test coverage dedicata).
+- 2026-02-17: completato `Request offers include item summary` (DTO offer esteso con `item` embedded, include query `Item+Owner` su request offers e test payload aggiornati).

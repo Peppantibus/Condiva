@@ -33,6 +33,8 @@ public sealed class OfferRepository : IOfferRepository
         var offers = await _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
+            .Include(offer => offer.Item)
+            .ThenInclude(item => item!.OwnerUser)
             .Where(offer => _dbContext.Memberships.Any(membership =>
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active
@@ -54,6 +56,8 @@ public sealed class OfferRepository : IOfferRepository
         var offer = await _dbContext.Offers
             .Include(item => item.Community)
             .Include(item => item.OffererUser)
+            .Include(item => item.Item)
+            .ThenInclude(foundItem => foundItem!.OwnerUser)
             .FirstOrDefaultAsync(item => item.Id == id);
         return offer is null
             ? RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"))
@@ -84,6 +88,8 @@ public sealed class OfferRepository : IOfferRepository
         var query = _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
+            .Include(offer => offer.Item)
+            .ThenInclude(item => item!.OwnerUser)
             .AsQueryable()
             .Where(offer => offer.OffererUserId == actorUserId);
 
@@ -219,6 +225,8 @@ public sealed class OfferRepository : IOfferRepository
         var createdOffer = await _dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
+            .Include(offer => offer.Item)
+            .ThenInclude(item => item!.OwnerUser)
             .FirstOrDefaultAsync(offer => offer.Id == body.Id);
 
         return RepositoryResult<Offer>.Success(createdOffer ?? body);
@@ -343,6 +351,8 @@ public sealed class OfferRepository : IOfferRepository
         var updatedOffer = await _dbContext.Offers
             .Include(foundOffer => foundOffer.Community)
             .Include(foundOffer => foundOffer.OffererUser)
+            .Include(foundOffer => foundOffer.Item)
+            .ThenInclude(item => item!.OwnerUser)
             .FirstOrDefaultAsync(foundOffer => foundOffer.Id == offer.Id);
 
         return RepositoryResult<Offer>.Success(updatedOffer ?? offer);

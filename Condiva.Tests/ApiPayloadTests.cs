@@ -185,6 +185,12 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.NotNull(offer.Offerer);
         Assert.False(string.IsNullOrWhiteSpace(offer.Offerer.DisplayName));
         Assert.False(string.IsNullOrWhiteSpace(offer.Offerer.UserName));
+        Assert.NotNull(offer.Item);
+        Assert.Equal(itemId, offer.Item.Id);
+        Assert.False(string.IsNullOrWhiteSpace(offer.Item.Name));
+        Assert.Equal("Available", offer.Item.Status);
+        Assert.NotNull(offer.Item.Owner);
+        Assert.Equal(offererId, offer.Item.Owner.Id);
         Assert.NotNull(offer.AllowedActions);
         Assert.Contains("view", offer.AllowedActions!);
         Assert.Contains("withdraw", offer.AllowedActions!);
@@ -214,6 +220,12 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(communityId, offer.Community.Id);
         Assert.False(string.IsNullOrWhiteSpace(offer.Community.Name));
         Assert.False(string.IsNullOrWhiteSpace(offer.Community.Slug));
+        Assert.NotNull(offer.Item);
+        Assert.Equal(itemId, offer.Item.Id);
+        Assert.False(string.IsNullOrWhiteSpace(offer.Item.Name));
+        Assert.Equal("Available", offer.Item.Status);
+        Assert.NotNull(offer.Item.Owner);
+        Assert.Equal(offererId, offer.Item.Owner.Id);
         Assert.NotNull(offer.AllowedActions);
         Assert.Contains("view", offer.AllowedActions!);
         Assert.Contains("accept", offer.AllowedActions!);

@@ -101,6 +101,8 @@ public sealed class RequestRepository : IRequestRepository
         var query = dbContext.Offers
             .Include(offer => offer.Community)
             .Include(offer => offer.OffererUser)
+            .Include(offer => offer.Item)
+            .ThenInclude(item => item!.OwnerUser)
             .Where(offer => offer.RequestId == id);
 
         var total = await query.CountAsync();
