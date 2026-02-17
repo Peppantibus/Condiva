@@ -123,6 +123,120 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task PutItem_WithCurrentIfMatch_UpdatesAndReturnsNewEtag()
+    {
+        var ownerId = $"item-update-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var getResponse = await client.GetAsync($"/api/items/{itemId}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        var currentEtag = GetRequiredEtag(getResponse);
+
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/items/{itemId}")
+        {
+            Content = JsonContent.Create(new
+            {
+                CommunityId = communityId,
+                OwnerUserId = ownerId,
+                Name = "Updated item name",
+                Description = "Updated item description",
+                Category = "Tools",
+                Status = "Available"
+            })
+        };
+        request.Headers.TryAddWithoutValidation("If-Match", currentEtag);
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<ItemDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal("Updated item name", payload!.Name);
+
+        var updatedEtag = GetRequiredEtag(response);
+        Assert.NotEqual(currentEtag, updatedEtag);
+    }
+
+    [Fact]
+    public async Task DeleteItem_WithCurrentIfMatch_DeletesResource()
+    {
+        var ownerId = $"item-delete-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var getResponse = await client.GetAsync($"/api/items/{itemId}");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        var currentEtag = GetRequiredEtag(getResponse);
+
+        var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, $"/api/items/{itemId}");
+        deleteRequest.Headers.TryAddWithoutValidation("If-Match", currentEtag);
+        var deleteResponse = await client.SendAsync(deleteRequest);
+
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        var readAfterDeleteResponse = await client.GetAsync($"/api/items/{itemId}");
+        Assert.Equal(HttpStatusCode.NotFound, readAfterDeleteResponse.StatusCode);
+        await AssertErrorEnvelopeAsync(readAfterDeleteResponse, "not_found");
+    }
+
+    [Fact]
+    public async Task ListEndpoints_ReturnUniformPagedEnvelopeShape()
+    {
+        var ownerId = $"paged-owner-{Guid.NewGuid():N}";
+        var offererId = $"paged-offerer-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, offererId);
+        var itemId = await SeedItemAsync(communityId, offererId);
+        var requestId = await SeedRequestAsync(communityId, ownerId);
+        await SeedOfferAsync(communityId, offererId, itemId, requestId);
+
+        using var client = CreateClientWithToken(ownerId);
+
+        var itemsResponse = await client.GetAsync($"/api/items?communityId={communityId}");
+        await AssertPagedEnvelopeAsync(itemsResponse, "createdAt", "desc");
+
+        var requestsResponse = await client.GetAsync($"/api/requests?communityId={communityId}");
+        await AssertPagedEnvelopeAsync(requestsResponse, "createdAt", "desc");
+
+        var offersResponse = await client.GetAsync("/api/offers");
+        await AssertPagedEnvelopeAsync(offersResponse, "createdAt", "desc");
+
+        var communitiesResponse = await client.GetAsync("/api/communities");
+        await AssertPagedEnvelopeAsync(communitiesResponse, "name", "asc");
+    }
+
+    [Fact]
+    public async Task ItemDates_AreSerializedAsUtcIso8601()
+    {
+        var ownerId = $"utc-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+
+        var listResponse = await client.GetAsync($"/api/items?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        using var listPayload = await JsonDocument.ParseAsync(await listResponse.Content.ReadAsStreamAsync());
+        var listCreatedAt = listPayload.RootElement
+            .GetProperty("items")
+            .EnumerateArray()
+            .First(item => item.GetProperty("id").GetString() == itemId)
+            .GetProperty("createdAt")
+            .GetString();
+        Assert.False(string.IsNullOrWhiteSpace(listCreatedAt));
+        Assert.EndsWith("Z", listCreatedAt!, StringComparison.Ordinal);
+
+        var detailResponse = await client.GetAsync($"/api/items/{itemId}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+        using var detailPayload = await JsonDocument.ParseAsync(await detailResponse.Content.ReadAsStreamAsync());
+        var detailCreatedAt = detailPayload.RootElement.GetProperty("createdAt").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(detailCreatedAt));
+        Assert.EndsWith("Z", detailCreatedAt!, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetItems_ReturnsOwnerSummary()
     {
         var ownerId = $"items-owner-{Guid.NewGuid():N}";
@@ -385,6 +499,31 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.Contains("view", offer.AllowedActions!);
         Assert.Contains("accept", offer.AllowedActions!);
         Assert.Contains("reject", offer.AllowedActions!);
+    }
+
+    private static string GetRequiredEtag(HttpResponseMessage response)
+    {
+        Assert.True(response.Headers.TryGetValues("ETag", out var values));
+        var etag = values!.Single();
+        Assert.False(string.IsNullOrWhiteSpace(etag));
+        return etag;
+    }
+
+    private static async Task AssertPagedEnvelopeAsync(
+        HttpResponseMessage response,
+        string expectedSort,
+        string expectedOrder)
+    {
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var payload = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var root = payload.RootElement;
+        Assert.Equal(JsonValueKind.Object, root.ValueKind);
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("items").ValueKind);
+        Assert.Equal(JsonValueKind.Number, root.GetProperty("page").ValueKind);
+        Assert.Equal(JsonValueKind.Number, root.GetProperty("pageSize").ValueKind);
+        Assert.Equal(JsonValueKind.Number, root.GetProperty("total").ValueKind);
+        Assert.Equal(expectedSort, root.GetProperty("sort").GetString());
+        Assert.Equal(expectedOrder, root.GetProperty("order").GetString());
     }
 
     private HttpClient CreateClientWithToken(string userId)
