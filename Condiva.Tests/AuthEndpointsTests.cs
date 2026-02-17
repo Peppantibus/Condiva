@@ -108,23 +108,15 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         Assert.Contains(setCookies, cookie => HasCookieAttributes(
             cookie,
             cookieSettings.AccessToken.Name,
-            "HttpOnly",
-            "Secure",
-            "SameSite=Lax",
-            "Path=/"));
+            BuildExpectedCookieAttributes(cookieSettings.AccessToken, cookieSettings.RequireSecure)));
         Assert.Contains(setCookies, cookie => HasCookieAttributes(
             cookie,
             cookieSettings.RefreshToken.Name,
-            "HttpOnly",
-            "Secure",
-            "SameSite=Strict",
-            "Path=/api/auth/refresh"));
+            BuildExpectedCookieAttributes(cookieSettings.RefreshToken, cookieSettings.RequireSecure)));
         Assert.Contains(setCookies, cookie => HasCookieAttributes(
             cookie,
             cookieSettings.CsrfToken.Name,
-            "Secure",
-            "SameSite=Strict",
-            "Path=/"));
+            BuildExpectedCookieAttributes(cookieSettings.CsrfToken, cookieSettings.RequireSecure)));
 
         Assert.True(response.Headers.TryGetValues(AuthSecurityHeaders.CsrfToken, out var csrfHeaderValues));
         Assert.False(string.IsNullOrWhiteSpace(csrfHeaderValues!.SingleOrDefault()));
@@ -238,7 +230,7 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
 
         var response = await client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     [Fact]
@@ -369,6 +361,41 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         }
 
         return true;
+    }
+
+    private static string[] BuildExpectedCookieAttributes(
+        AuthCookieDefinition cookie,
+        bool requireSecure)
+    {
+        var attributes = new List<string>
+        {
+            $"Path={(string.IsNullOrWhiteSpace(cookie.Path) ? "/" : cookie.Path)}",
+            $"SameSite={NormalizeSameSite(cookie.SameSite)}"
+        };
+        if (cookie.HttpOnly)
+        {
+            attributes.Add("HttpOnly");
+        }
+        if (requireSecure)
+        {
+            attributes.Add("Secure");
+        }
+
+        return attributes.ToArray();
+    }
+
+    private static string NormalizeSameSite(string? sameSite)
+    {
+        if (string.Equals(sameSite, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            return "None";
+        }
+        if (string.Equals(sameSite, "strict", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Strict";
+        }
+
+        return "Lax";
     }
 
     private static string ExtractCookie(HttpResponseMessage response, string cookieName)

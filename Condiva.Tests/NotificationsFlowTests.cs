@@ -163,7 +163,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         Assert.Contains("offerta", notification.Message, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(notification.Actor);
         Assert.Equal(lenderId, notification.Actor!.Id);
-        Assert.Equal($"{lenderId}-name", notification.Actor.Username);
+        Assert.Equal($"{lenderId}-name", notification.Actor.UserName);
         Assert.False(string.IsNullOrWhiteSpace(notification.Actor.AvatarUrl));
 
         Assert.NotNull(notification.EntitySummary);
