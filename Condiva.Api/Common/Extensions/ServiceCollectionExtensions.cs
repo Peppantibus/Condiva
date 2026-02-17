@@ -10,6 +10,7 @@ using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Security;
 using Condiva.Api.Features.Communities;
 using Condiva.Api.Features.Communities.Data;
 using Condiva.Api.Features.Events.Data;
@@ -165,42 +166,25 @@ public static class ServiceCollectionExtensions
         services.Configure<CloudFlareR2Options>(configuration.GetSection("CloudFlareR2"));
         services.AddSingleton<IR2StorageService, R2StorageService>();
 
-        var corsOrigins = configuration.GetSection("Cors:AllowedOrigins")
-            .Get<string[]>()?
-            .Where(origin => !string.IsNullOrWhiteSpace(origin))
-            .Select(origin => origin.Trim().TrimEnd('/'))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? Array.Empty<string>();
+        var corsOrigins = OriginAllowlist.Resolve(configuration);
         if (corsOrigins.Length == 0)
         {
-            var frontendUrl = configuration.GetValue<string>("AuthSettings:FrontendUrl");
-            if (!string.IsNullOrWhiteSpace(frontendUrl))
-            {
-                corsOrigins = new[] { frontendUrl.Trim().TrimEnd('/') };
-            }
+            throw new InvalidOperationException(
+                "At least one CORS allowed origin must be configured via Cors:AllowedOrigins or AuthSettings:FrontendUrl.");
         }
 
-        if (corsOrigins.Length > 0)
+        services.AddCors(options =>
         {
-            if (corsOrigins.Any(origin => origin.Contains('*')))
+            options.AddPolicy("Frontend", policy =>
             {
-                throw new InvalidOperationException(
-                    "Cors:AllowedOrigins must not contain wildcard values when credentials are enabled.");
-            }
-
-            services.AddCors(options =>
-            {
-                options.AddPolicy("Frontend", policy =>
-                {
-                    policy.WithOrigins(corsOrigins)
-                        .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                        .WithHeaders("Content-Type", "Authorization", AuthSecurityHeaders.CsrfToken)
-                        .WithExposedHeaders(AuthSecurityHeaders.CsrfToken, "WWW-Authenticate")
-                        .AllowCredentials()
-                        .SetPreflightMaxAge(TimeSpan.FromHours(1));
-                });
+                policy.WithOrigins(corsOrigins)
+                    .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+                    .WithHeaders("Content-Type", "Authorization", AuthSecurityHeaders.CsrfToken)
+                    .WithExposedHeaders(AuthSecurityHeaders.CsrfToken, "WWW-Authenticate")
+                    .AllowCredentials()
+                    .SetPreflightMaxAge(TimeSpan.FromHours(1));
             });
-        }
+        });
 
         services.AddScoped<ICommunityRepository, CommunityRepository>();
         services.AddScoped<IItemRepository, ItemRepository>();

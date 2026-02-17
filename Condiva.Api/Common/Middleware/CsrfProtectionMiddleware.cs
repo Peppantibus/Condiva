@@ -1,5 +1,7 @@
 using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Auth.Configuration;
+using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Security;
 using Microsoft.Extensions.Options;
 
 namespace Condiva.Api.Common.Middleware;
@@ -14,8 +16,7 @@ public sealed class CsrfProtectionMiddleware
         "/api/auth/recovery",
         "/api/auth/reset",
         "/api/auth/verify/resend",
-        "/api/auth/refresh",
-        "/api/auth/logout"
+        "/api/auth/refresh"
     ];
 
     private readonly RequestDelegate _next;
@@ -29,7 +30,7 @@ public sealed class CsrfProtectionMiddleware
     {
         _next = next;
         _cookieSettings = cookieOptions.Value;
-        _allowedOrigins = ResolveAllowedOrigins(configuration);
+        _allowedOrigins = new HashSet<string>(OriginAllowlist.Resolve(configuration), StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -43,24 +44,14 @@ public sealed class CsrfProtectionMiddleware
 
         if (!HasValidOrigin(context.Request, _allowedOrigins))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "invalid_origin",
-                message = "Origin or Referer is not allowed."
-            });
+            await ApiErrors.Forbidden("Origin or Referer is not allowed.").ExecuteAsync(context);
             return;
         }
 
         if (!IsCsrfTokenExemptPath(context.Request.Path)
             && !HasValidDoubleSubmitToken(context.Request, _cookieSettings))
         {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "invalid_csrf_token",
-                message = "CSRF token is missing or invalid."
-            });
+            await ApiErrors.Forbidden("CSRF token is missing or invalid.").ExecuteAsync(context);
             return;
         }
 
@@ -141,34 +132,6 @@ public sealed class CsrfProtectionMiddleware
         return string.Equals(candidate, requestOrigin, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static HashSet<string> ResolveAllowedOrigins(IConfiguration configuration)
-    {
-        var origins = configuration.GetSection("Cors:AllowedOrigins")
-            .Get<string[]>()?
-            .Where(origin => !string.IsNullOrWhiteSpace(origin))
-            .Select(origin => origin.Trim())
-            .ToArray() ?? [];
-
-        if (origins.Length == 0)
-        {
-            var frontendUrl = configuration.GetValue<string>("AuthSettings:FrontendUrl");
-            if (!string.IsNullOrWhiteSpace(frontendUrl))
-            {
-                origins = [frontendUrl.Trim()];
-            }
-        }
-
-        var normalizedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var origin in origins)
-        {
-            if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
-            {
-                normalizedOrigins.Add(uri.GetLeftPart(UriPartial.Authority));
-            }
-        }
-
-        return normalizedOrigins;
-    }
 }
 
 public static class CsrfProtectionExtensions

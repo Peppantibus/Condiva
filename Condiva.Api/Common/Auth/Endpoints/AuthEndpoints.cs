@@ -259,6 +259,15 @@ public static class AuthEndpoints
                 })
             .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
 
+        group.MapGet("/csrf",
+                (HttpContext httpContext, IOptions<AuthCookieSettings> authCookieOptions) =>
+                {
+                    var csrfToken = RotateCsrfToken(httpContext, authCookieOptions.Value);
+                    return HttpResults.Ok(new CsrfTokenResponse(csrfToken));
+                })
+            .RequireAuthorization()
+            .Produces<CsrfTokenResponse>(StatusCodes.Status200OK);
+
         group.MapPost("/logout",
                 async (
                     ClaimsPrincipal user,
@@ -461,9 +470,15 @@ public static class AuthEndpoints
             AppendCookie(httpContext, cookieSettings.RefreshToken, refreshToken, cookieSettings.RequireSecure);
         }
 
+        RotateCsrfToken(httpContext, cookieSettings);
+    }
+
+    private static string RotateCsrfToken(HttpContext httpContext, AuthCookieSettings cookieSettings)
+    {
         var csrfToken = GenerateCsrfToken();
         AppendCookie(httpContext, cookieSettings.CsrfToken, csrfToken, cookieSettings.RequireSecure);
         httpContext.Response.Headers[AuthSecurityHeaders.CsrfToken] = csrfToken;
+        return csrfToken;
     }
 
     private static void ClearAuthCookies(HttpContext httpContext, AuthCookieSettings cookieSettings)
@@ -531,6 +546,7 @@ public static class AuthEndpoints
     public sealed record RecoveryRequest(string Email);
     public sealed record ResendVerificationRequest(string Email);
     public sealed record RefreshTokenRequest(string? RefreshToken, string? Token);
+    public sealed record CsrfTokenResponse(string CsrfToken);
     public sealed record GoogleLoginRequest(
         string? IdToken,
         string? Credential,

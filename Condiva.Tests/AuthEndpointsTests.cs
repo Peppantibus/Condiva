@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Tests.Infrastructure;
 using AuthLibrary.Configuration;
@@ -197,6 +198,82 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("forbidden", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task ProtectedPost_WithAccessCookieAndValidCsrfHeader_ReturnsSuccess()
+    {
+        var userId = $"csrf-ok-user-{Guid.NewGuid():N}";
+        await SeedStandaloneUserAsync(userId);
+
+        using var client = CreateClient();
+        var token = CreateJwt(userId);
+        var cookieSettings = GetAuthCookieSettings();
+        var csrfToken = Guid.NewGuid().ToString("N");
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/communities")
+        {
+            Content = JsonContent.Create(new
+            {
+                Name = "CSRF OK Community",
+                Slug = $"csrf-ok-{Guid.NewGuid():N}",
+                CreatedByUserId = "ignored-by-server"
+            })
+        };
+        request.Headers.Add("Cookie",
+            $"{cookieSettings.AccessToken.Name}={token}; {cookieSettings.CsrfToken.Name}={csrfToken}");
+        request.Headers.Add(AuthSecurityHeaders.CsrfToken, csrfToken);
+        request.Headers.Add("Origin", "http://localhost:5173");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_WithAccessCookieAndMissingCsrfHeader_IsRejected()
+    {
+        var userId = $"logout-csrf-user-{Guid.NewGuid():N}";
+        await SeedStandaloneUserAsync(userId);
+
+        using var client = CreateClient();
+        var token = CreateJwt(userId);
+        var cookieSettings = GetAuthCookieSettings();
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout")
+        {
+            Content = JsonContent.Create(new { })
+        };
+        request.Headers.Add("Cookie", $"{cookieSettings.AccessToken.Name}={token}");
+        request.Headers.Add("Origin", "http://localhost:5173");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("forbidden", await ReadErrorCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task CsrfEndpoint_WithAccessCookie_RotatesTokenAndReturnsHeader()
+    {
+        var userId = $"csrf-endpoint-user-{Guid.NewGuid():N}";
+        await SeedStandaloneUserAsync(userId);
+
+        using var client = CreateClient();
+        var token = CreateJwt(userId);
+        var cookieSettings = GetAuthCookieSettings();
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/auth/csrf");
+        request.Headers.Add("Cookie", $"{cookieSettings.AccessToken.Name}={token}");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues(AuthSecurityHeaders.CsrfToken, out var csrfHeaderValues));
+        var csrfHeaderToken = csrfHeaderValues!.SingleOrDefault();
+        Assert.False(string.IsNullOrWhiteSpace(csrfHeaderToken));
+
+        var csrfCookie = ExtractCookie(response, cookieSettings.CsrfToken.Name);
+        var cookieToken = csrfCookie[(csrfCookie.IndexOf('=') + 1)..];
+        Assert.Equal(csrfHeaderToken, cookieToken);
     }
 
     private HttpClient CreateClient()
@@ -299,6 +376,19 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
 
         var separator = matching.IndexOf(';');
         return separator < 0 ? matching : matching[..separator];
+    }
+
+    private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (!document.RootElement.TryGetProperty("error", out var errorElement))
+        {
+            return null;
+        }
+
+        return errorElement.TryGetProperty("code", out var codeElement)
+            ? codeElement.GetString()
+            : null;
     }
 
     private async Task SeedStandaloneUserAsync(string userId)

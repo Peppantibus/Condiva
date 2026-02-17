@@ -27,11 +27,6 @@ builder.Services.AddCondivaServices(builder.Configuration);
 
 var app = builder.Build();
 
-var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
-    .Get<string[]>()?
-    .Any(origin => !string.IsNullOrWhiteSpace(origin)) == true
-    || !string.IsNullOrWhiteSpace(builder.Configuration.GetValue<string>("AuthSettings:FrontendUrl"));
-
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -53,11 +48,7 @@ app.UseExceptionHandler(errorApp =>
 });
 
 app.UseSecurityHeaders();
-
-if (corsOrigins)
-{
-    app.UseCors("Frontend");
-}
+app.UseCors("Frontend");
 
 app.UseRateLimiter();
 app.UseAuthentication();

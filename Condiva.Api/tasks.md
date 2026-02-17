@@ -23,8 +23,8 @@ Regola stato:
   - Scope: tutti gli endpoint
   - Note: shape unica `error.code`, `error.message`, `error.fields`, `traceId`
 
-- [ ] CSRF/session contract hardening
-  - Status: TODO
+- [x] CSRF/session contract hardening
+  - Status: DONE
   - Scope: cookie auth/session, rotazione CSRF, CORS allowlist
 
 - [ ] Idempotency-Key on critical POST
@@ -89,3 +89,4 @@ Regola stato:
 - 2026-02-17: completato `Server-authoritative identity on write operations` (hardening write path + test anti-impersonificazione).
 - 2026-02-17: completato `Authorization matrix + allowedActions` (allowedActions su list/detail + 403 su permessi mutativi mancanti).
 - 2026-02-17: completato `Standard error envelope` (envelope uniforme + traceId + fields validazione + handler globale 500).
+- 2026-02-17: completato `CSRF/session contract hardening` (error envelope uniforme nel middleware CSRF, logout protetto da CSRF, endpoint rotazione token CSRF, CORS origin allowlist centralizzata).
