@@ -83,6 +83,28 @@ Regola stato:
   - Status: DONE
   - Scope: spec/runtime alignment + check pipeline client generation
 
+## Post-delivery stabilization (run test)
+
+- [x] Auth session expiry derived from runtime token payload
+  - Status: DONE
+  - Scope: fallback `expiresAt/expiresIn` extraction from JWT `exp` quando payload tipizzato non espone `ExpiresAt`
+
+- [x] EF query stability for notifications and community members
+  - Status: DONE
+  - Scope: rimozione pattern query che in .NET 10 causava `InternalServerError` su `Contains` + materializzazione dizionari
+
+- [x] UTC serialization parity for minimal APIs
+  - Status: DONE
+  - Scope: allineamento converter UTC anche su `HttpJsonOptions` (endpoint minimal)
+
+- [x] Search filtering consistency on items
+  - Status: DONE
+  - Scope: filtro `search` case-insensitive lato repository
+
+- [x] Regression tests aligned to effective runtime contract
+  - Status: DONE
+  - Scope: test auth cookie policy da config runtime + `POST /api/communities` atteso `201 Created`
+
 ## Progress Log
 
 - Inizio tracciamento: 2026-02-17
@@ -103,3 +125,8 @@ Regola stato:
 - 2026-02-17: completato `Uniform pagination/sorting/date contracts` (list endpoint uniformati su `PagedResponseDto` con `items/page/pageSize/total/sort/order`, ordinamenti di default esplicitati, converter JSON UTC per `DateTime`/`DateTime?`, notifiche allineate allo stesso contratto e test payload aggiornati su response paginate).
 - 2026-02-17: completato `Concurrency control for updates` (ETag deterministico su detail/create/update delle entita principali, supporto `If-Match` su `PUT/DELETE` per communities/items/requests/offers/loans/memberships/events con `412 precondition_failed` su mismatch, e test API aggiunti per header ETag + conflitto optimistic concurrency).
 - 2026-02-17: completato `OpenAPI fidelity and SDK validation pipeline` (nuovi test contrattuali su `/swagger/v1/swagger.json` per unread-count typed, schema paginato uniforme e auth response canonica; pipeline CI estesa con smoke step che estrae la spec runtime e valida generazione SDK C# via NSwag).
+- 2026-02-17: completato `Auth session expiry derived from runtime token payload` (fallback JWT `exp` per calcolo `expiresAt/expiresIn` su login/refresh quando il DTO libreria non espone `ExpiresAt`).
+- 2026-02-17: completato `EF query stability for notifications and community members` (eliminati crash runtime su query LINQ/materializzazione che producevano `500` in `GET /api/notifications` e `GET /api/communities/{id}/members`).
+- 2026-02-17: completato `UTC serialization parity for minimal APIs` (converter UTC applicato anche alle response minimal APIs).
+- 2026-02-17: completato `Search filtering consistency on items` (search case-insensitive su `GET /api/items` con filtri owner/status/category/search/paging).
+- 2026-02-17: completato `Regression tests aligned to effective runtime contract` (aggiornati test su cookie policy configurata e `201 Created` per create community con CSRF valido; suite test verde).
