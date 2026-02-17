@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Communities.Models;
+using Condiva.Api.Features.Dashboard.Dtos;
 using Condiva.Api.Features.Items.Dtos;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Memberships.Models;
@@ -158,6 +159,55 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             Assert.NotNull(item.AllowedActions);
             Assert.Contains("view", item.AllowedActions!);
         });
+    }
+
+    [Fact]
+    public async Task GetDashboard_ReturnsAggregatedPreviewsAndCounters()
+    {
+        var actorUserId = $"dashboard-actor-{Guid.NewGuid():N}";
+        var otherMemberId = $"dashboard-other-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, otherMemberId);
+
+        await SeedRequestAsync(communityId, actorUserId);
+        await SeedRequestAsync(communityId, actorUserId);
+        await SeedRequestAsync(communityId, otherMemberId);
+
+        var availableItemByActor = await SeedItemAsync(communityId, actorUserId, ItemStatus.Available);
+        var availableItemByOther = await SeedItemAsync(communityId, otherMemberId, ItemStatus.Available);
+        await SeedItemAsync(communityId, actorUserId, ItemStatus.Reserved);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.GetAsync($"/api/dashboard/{communityId}?previewSize=2");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<DashboardSummaryDto>();
+        Assert.NotNull(payload);
+
+        Assert.Equal(3, payload!.Counters.OpenRequestsTotal);
+        Assert.Equal(2, payload.Counters.AvailableItemsTotal);
+        Assert.Equal(2, payload.Counters.MyRequestsTotal);
+
+        Assert.True(payload.OpenRequestsPreview.Count <= 2);
+        Assert.True(payload.AvailableItemsPreview.Count <= 2);
+        Assert.True(payload.MyRequestsPreview.Count <= 2);
+        Assert.Contains(payload.AvailableItemsPreview, item => item.Id == availableItemByActor);
+        Assert.Contains(payload.AvailableItemsPreview, item => item.Id == availableItemByOther);
+        Assert.All(payload.MyRequestsPreview, request => Assert.Equal(actorUserId, request.Owner.Id));
+    }
+
+    [Fact]
+    public async Task GetDashboard_AsNonMember_ReturnsForbiddenErrorEnvelope()
+    {
+        var ownerId = $"dashboard-owner-{Guid.NewGuid():N}";
+        var outsiderId = $"dashboard-outsider-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await SeedUserAsync(outsiderId);
+
+        using var client = CreateClientWithToken(outsiderId);
+        var response = await client.GetAsync($"/api/dashboard/{communityId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "forbidden");
     }
 
     [Fact]

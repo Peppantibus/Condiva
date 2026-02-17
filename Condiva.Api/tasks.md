@@ -41,8 +41,8 @@ Regola stato:
   - Status: DONE
   - Scope: `GET /api/requests/{id}/offers` include item summary completo
 
-- [ ] Dashboard aggregate endpoint
-  - Status: TODO
+- [x] Dashboard aggregate endpoint
+  - Status: DONE
   - Scope: `GET /api/dashboard/{communityId}` con preview e counters
 
 - [ ] Server-side filtering for items/loans/my views
@@ -93,3 +93,4 @@ Regola stato:
 - 2026-02-17: completato `Idempotency-Key on critical POST` (middleware su POST critici con replay response persistita, conflitto su payload differente, CORS aggiornato per header Idempotency-Key).
 - 2026-02-17: completato `Members endpoint per community, paginato e filtrabile` (nuovo `GET /api/communities/{id}/members` con filtri `search/role/status`, payload user+reputation, paginazione server-side e test coverage dedicata).
 - 2026-02-17: completato `Request offers include item summary` (DTO offer esteso con `item` embedded, include query `Item+Owner` su request offers e test payload aggiornati).
+- 2026-02-17: completato `Dashboard aggregate endpoint` (nuovo `GET /api/dashboard/{communityId}` con `openRequestsPreview`, `availableItemsPreview`, `myRequestsPreview`, `counters` e test payload/authorization).
