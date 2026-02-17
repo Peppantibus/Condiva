@@ -76,13 +76,14 @@ public static class AuthEndpoints
                     {
                         var error = result.Error ?? "Google login failed.";
                         var errorCode = result.GetType().GetProperty("ErrorCode")?.GetValue(result)?.ToString();
+                        var errorKind = ResolveGoogleErrorKind(errorCode, error);
                         logger.LogWarning("Google login failed: {Error}", error);
                         if (!string.IsNullOrWhiteSpace(errorCode))
                         {
                             logger.LogWarning("Google login error code: {ErrorCode}", errorCode);
                         }
 
-                        return ErrorResult(AuthErrorKind.InvalidToken, error);
+                        return ErrorResult(errorKind, error);
                     }
 
                     SetAuthCookies(httpContext, result.Value!, authCookieOptions.Value);
@@ -338,6 +339,52 @@ public static class AuthEndpoints
         }
 
         return fallback;
+    }
+
+    private static AuthErrorKind ResolveGoogleErrorKind(string? errorCode, string? errorMessage)
+    {
+        if (ContainsAny(
+                errorCode,
+                "already",
+                "exist",
+                "duplicate",
+                "link",
+                "account"))
+        {
+            return AuthErrorKind.Conflict;
+        }
+
+        if (ContainsAny(
+                errorMessage,
+                "account gia esistente",
+                "collega google",
+                "already",
+                "exist",
+                "duplicate",
+                "link"))
+        {
+            return AuthErrorKind.Conflict;
+        }
+
+        return ResolveAuthErrorKind(errorMessage, AuthErrorKind.InvalidToken);
+    }
+
+    private static bool ContainsAny(string? value, params string[] needles)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        foreach (var needle in needles)
+        {
+            if (value.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string GetErrorCode(AuthErrorKind kind)
