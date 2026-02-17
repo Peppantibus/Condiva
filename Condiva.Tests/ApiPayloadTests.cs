@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
@@ -45,6 +46,20 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         var response = await client.GetAsync("/api/items");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "validation_error", hasFields: true, expectedField: "communityId");
+    }
+
+    [Fact]
+    public async Task GetItem_NotFound_ReturnsNotFoundErrorEnvelope()
+    {
+        var userId = $"items-notfound-{Guid.NewGuid():N}";
+        await SeedUserAsync(userId);
+        using var client = CreateClientWithToken(userId);
+
+        var response = await client.GetAsync($"/api/items/{Guid.NewGuid():N}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "not_found");
     }
 
     [Fact]
@@ -386,5 +401,32 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             signingCredentials: credentials);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    private static async Task AssertErrorEnvelopeAsync(
+        HttpResponseMessage response,
+        string expectedCode,
+        bool hasFields = false,
+        string? expectedField = null)
+    {
+        using var payload = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+
+        Assert.True(payload.RootElement.TryGetProperty("error", out var errorNode));
+        Assert.True(errorNode.TryGetProperty("code", out var codeNode));
+        Assert.Equal(expectedCode, codeNode.GetString());
+        Assert.True(errorNode.TryGetProperty("message", out var messageNode));
+        Assert.False(string.IsNullOrWhiteSpace(messageNode.GetString()));
+        Assert.True(payload.RootElement.TryGetProperty("traceId", out var traceIdNode));
+        Assert.False(string.IsNullOrWhiteSpace(traceIdNode.GetString()));
+
+        if (hasFields)
+        {
+            Assert.True(errorNode.TryGetProperty("fields", out var fieldsNode));
+            Assert.Equal(JsonValueKind.Object, fieldsNode.ValueKind);
+            if (!string.IsNullOrWhiteSpace(expectedField))
+            {
+                Assert.True(fieldsNode.TryGetProperty(expectedField, out _));
+            }
+        }
     }
 }

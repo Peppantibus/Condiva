@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Features.Communities.Dtos;
@@ -52,6 +53,9 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var payload = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("forbidden", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(payload.RootElement.GetProperty("traceId").GetString()));
     }
 
     [Fact]

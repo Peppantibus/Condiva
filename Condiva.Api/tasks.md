@@ -18,8 +18,8 @@ Regola stato:
   - Scope: communities, members, requests, offers, items, loans
   - Note: enforcement server-side + `allowedActions` coerenti in list/detail
 
-- [ ] Standard error envelope
-  - Status: TODO
+- [x] Standard error envelope
+  - Status: DONE
   - Scope: tutti gli endpoint
   - Note: shape unica `error.code`, `error.message`, `error.fields`, `traceId`
 
@@ -88,3 +88,4 @@ Regola stato:
 - Inizio tracciamento: 2026-02-17
 - 2026-02-17: completato `Server-authoritative identity on write operations` (hardening write path + test anti-impersonificazione).
 - 2026-02-17: completato `Authorization matrix + allowedActions` (allowedActions su list/detail + 403 su permessi mutativi mancanti).
+- 2026-02-17: completato `Standard error envelope` (envelope uniforme + traceId + fields validazione + handler globale 500).

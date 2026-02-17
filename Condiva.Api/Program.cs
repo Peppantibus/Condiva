@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using Condiva.Api.Common.Auth.Endpoints;
+using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Extensions;
 using Condiva.Api.Common.Middleware;
 using Condiva.Api.Features.Communities.Endpoints;
@@ -42,6 +43,15 @@ else
     app.UseHsts();
     app.UseHttpsRedirection();
 }
+
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        await ApiErrors.Internal().ExecuteAsync(context);
+    });
+});
+
 app.UseSecurityHeaders();
 
 if (corsOrigins)
