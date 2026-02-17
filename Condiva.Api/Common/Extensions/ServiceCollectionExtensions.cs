@@ -28,6 +28,7 @@ using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Requests.Data;
 using Condiva.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -61,6 +62,11 @@ public static class ServiceCollectionExtensions
                 options.JsonSerializerOptions.Converters.Add(
                     new System.Text.Json.Serialization.JsonStringEnumConverter());
             });
+        services.ConfigureHttpJsonOptions(options =>
+        {
+            options.SerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
+            options.SerializerOptions.Converters.Add(new UtcNullableDateTimeJsonConverter());
+        });
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {

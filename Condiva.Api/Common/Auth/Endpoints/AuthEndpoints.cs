@@ -1,6 +1,7 @@
 using System.Net.Mail;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
 using AuthLibrary.Interfaces;
 using AuthLibrary.Models;
 using AuthLibrary.Models.Dto.Auth;
@@ -465,6 +466,83 @@ public static class AuthEndpoints
         };
     }
 
+    private static int? ExtractIntegerProperty(object instance, string propertyName)
+    {
+        var property = instance.GetType().GetProperty(propertyName);
+        if (property is null)
+        {
+            return null;
+        }
+
+        var value = property.GetValue(instance);
+        return value switch
+        {
+            int intValue => intValue,
+            long longValue => checked((int)longValue),
+            short shortValue => shortValue,
+            byte byteValue => byteValue,
+            _ => null
+        };
+    }
+
+    private static DateTime? ExtractJwtExpiry(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        var segments = token.Split('.');
+        if (segments.Length < 2)
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = segments[1]
+                .Replace('-', '+')
+                .Replace('_', '/');
+            switch (payload.Length % 4)
+            {
+                case 2:
+                    payload += "==";
+                    break;
+                case 3:
+                    payload += "=";
+                    break;
+            }
+
+            var payloadBytes = Convert.FromBase64String(payload);
+            using var payloadJson = JsonDocument.Parse(payloadBytes);
+            if (!payloadJson.RootElement.TryGetProperty("exp", out var expProperty))
+            {
+                return null;
+            }
+
+            long unixSeconds;
+            if (expProperty.ValueKind == JsonValueKind.Number && expProperty.TryGetInt64(out var numericExp))
+            {
+                unixSeconds = numericExp;
+            }
+            else if (expProperty.ValueKind == JsonValueKind.String
+                     && long.TryParse(expProperty.GetString(), out var stringExp))
+            {
+                unixSeconds = stringExp;
+            }
+            else
+            {
+                return null;
+            }
+
+            return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static AuthSessionUserDto? BuildAuthSessionUser(RefreshTokenDto tokenPayload)
     {
         var userProperty = tokenPayload.GetType().GetProperty("User");
@@ -524,7 +602,16 @@ public static class AuthEndpoints
     private static AuthSessionResponseDto ToAuthSessionResponse(RefreshTokenDto tokenPayload)
     {
         var accessToken = Normalize(tokenPayload.AccessToken?.Token) ?? string.Empty;
-        var accessTokenExpiresAt = NormalizeDateTime(tokenPayload.AccessToken?.ExpiresAt ?? DateTime.UtcNow);
+        var accessTokenPayload = tokenPayload.AccessToken;
+        var accessTokenExpiresAt = NormalizeDateTime(
+            (accessTokenPayload is null ? null : ExtractDateTimeProperty(accessTokenPayload, "ExpiresAt"))
+            ?? (accessTokenPayload is null ? null : ExtractDateTimeProperty(accessTokenPayload, "ExpireAt"))
+            ?? ExtractJwtExpiry(accessToken)
+            ?? DateTime.UtcNow.AddSeconds(Math.Max(
+                (accessTokenPayload is null ? null : ExtractIntegerProperty(accessTokenPayload, "ExpiresIn"))
+                ?? ExtractIntegerProperty(tokenPayload, "ExpiresIn")
+                ?? 0,
+                0)));
         var expiresIn = Math.Max(
             (int)Math.Ceiling((accessTokenExpiresAt - DateTime.UtcNow).TotalSeconds),
             0);
