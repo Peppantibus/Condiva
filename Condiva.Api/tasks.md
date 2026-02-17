@@ -79,8 +79,8 @@ Regola stato:
   - Status: DONE
   - Scope: ETag/If-Match o rowVersion su update/delete principali
 
-- [ ] OpenAPI fidelity and SDK validation pipeline
-  - Status: TODO
+- [x] OpenAPI fidelity and SDK validation pipeline
+  - Status: DONE
   - Scope: spec/runtime alignment + check pipeline client generation
 
 ## Progress Log
@@ -102,3 +102,4 @@ Regola stato:
 - 2026-02-17: completato `Canonical auth response shape` (login/google/refresh allineati su response unica `AuthSessionResponseDto` con `accessToken`, `expiresIn`, `tokenType`, `expiresAt`, `refreshTokenExpiresAt`, `user`; test auth aggiornati sul nuovo contratto).
 - 2026-02-17: completato `Uniform pagination/sorting/date contracts` (list endpoint uniformati su `PagedResponseDto` con `items/page/pageSize/total/sort/order`, ordinamenti di default esplicitati, converter JSON UTC per `DateTime`/`DateTime?`, notifiche allineate allo stesso contratto e test payload aggiornati su response paginate).
 - 2026-02-17: completato `Concurrency control for updates` (ETag deterministico su detail/create/update delle entita principali, supporto `If-Match` su `PUT/DELETE` per communities/items/requests/offers/loans/memberships/events con `412 precondition_failed` su mismatch, e test API aggiunti per header ETag + conflitto optimistic concurrency).
+- 2026-02-17: completato `OpenAPI fidelity and SDK validation pipeline` (nuovi test contrattuali su `/swagger/v1/swagger.json` per unread-count typed, schema paginato uniforme e auth response canonica; pipeline CI estesa con smoke step che estrae la spec runtime e valida generazione SDK C# via NSwag).

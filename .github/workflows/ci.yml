@@ -31,3 +31,6 @@ jobs:
 
       - name: Test
         run: dotnet test -c Release --no-build
+
+      - name: OpenAPI And SDK Smoke
+        run: bash ./scripts/openapi_sdk_smoke.sh
