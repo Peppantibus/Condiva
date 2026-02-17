@@ -93,10 +93,11 @@ public sealed class ItemRepository : IItemRepository
         var normalizedSearch = Normalize(search);
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
+            var searchLower = normalizedSearch.ToLowerInvariant();
             query = query.Where(item =>
-                item.Name.Contains(normalizedSearch)
-                || (item.Description ?? string.Empty).Contains(normalizedSearch)
-                || (item.Category ?? string.Empty).Contains(normalizedSearch));
+                item.Name.ToLower().Contains(searchLower)
+                || (item.Description ?? string.Empty).ToLower().Contains(searchLower)
+                || (item.Category ?? string.Empty).ToLower().Contains(searchLower));
         }
 
         var normalizedSort = string.IsNullOrWhiteSpace(sort) ? "createdAt_desc" : sort.Trim();

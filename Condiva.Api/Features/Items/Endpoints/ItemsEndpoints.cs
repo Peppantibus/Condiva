@@ -1,6 +1,7 @@
 ﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Concurrency;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Items.Data;
 using Condiva.Api.Features.Items.Dtos;
