@@ -63,6 +63,66 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetItem_ReturnsEtagHeader()
+    {
+        var ownerId = $"item-etag-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.GetAsync($"/api/items/{itemId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("ETag", out var etagValues));
+        Assert.False(string.IsNullOrWhiteSpace(etagValues!.Single()));
+    }
+
+    [Fact]
+    public async Task PutItem_WithStaleIfMatch_ReturnsPreconditionFailed()
+    {
+        var ownerId = $"item-stale-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var request = new HttpRequestMessage(HttpMethod.Put, $"/api/items/{itemId}")
+        {
+            Content = JsonContent.Create(new
+            {
+                CommunityId = communityId,
+                OwnerUserId = ownerId,
+                Name = "Updated item",
+                Description = "Updated",
+                Category = "Tools",
+                Status = "Available"
+            })
+        };
+        request.Headers.TryAddWithoutValidation("If-Match", "\"stale-version\"");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "precondition_failed");
+    }
+
+    [Fact]
+    public async Task DeleteItem_WithStaleIfMatch_ReturnsPreconditionFailed()
+    {
+        var ownerId = $"item-delete-stale-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/items/{itemId}");
+        request.Headers.TryAddWithoutValidation("If-Match", "\"stale-version\"");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "precondition_failed");
+    }
+
+    [Fact]
     public async Task GetItems_ReturnsOwnerSummary()
     {
         var ownerId = $"items-owner-{Guid.NewGuid():N}";

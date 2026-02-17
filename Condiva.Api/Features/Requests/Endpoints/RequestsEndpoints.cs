@@ -1,6 +1,7 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Dtos;
@@ -79,6 +80,7 @@ public static class RequestsEndpoints
             ClaimsPrincipal user,
             IRequestRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             var actorUserId = CurrentUser.GetUserId(user);
@@ -106,6 +108,7 @@ public static class RequestsEndpoints
             {
                 AllowedActions = AllowedActionsPolicy.ForRequest(result.Data!, actorUserId, actorRole.Value)
             };
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
@@ -221,6 +224,7 @@ public static class RequestsEndpoints
             ClaimsPrincipal user,
             IRequestRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
@@ -255,6 +259,7 @@ public static class RequestsEndpoints
             }
 
             var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/requests/{payload.Id}", payload);
         })
             .Produces<RequestDetailsDto>(StatusCodes.Status201Created);
@@ -263,10 +268,22 @@ public static class RequestsEndpoints
             string id,
             UpdateRequestRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             IRequestRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user, dbContext);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             if (string.IsNullOrWhiteSpace(body.Status))
             {
                 return ApiErrors.Required(nameof(body.Status));
@@ -294,6 +311,7 @@ public static class RequestsEndpoints
             }
 
             var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
@@ -301,9 +319,20 @@ public static class RequestsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             IRequestRepository repository,
             CondivaDbContext dbContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user, dbContext);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var result = await repository.DeleteAsync(id, user, dbContext);
             if (!result.IsSuccess)
             {

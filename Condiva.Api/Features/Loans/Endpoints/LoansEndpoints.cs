@@ -2,6 +2,7 @@
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Features.Loans.Data;
 using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Loans.Models;
@@ -86,6 +87,7 @@ public static class LoansEndpoints
             ClaimsPrincipal user,
             ILoanRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             var actorUserId = CurrentUser.GetUserId(user);
@@ -113,6 +115,7 @@ public static class LoansEndpoints
             {
                 AllowedActions = AllowedActionsPolicy.ForLoan(result.Data!, actorUserId, actorRole.Value)
             };
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
@@ -121,7 +124,8 @@ public static class LoansEndpoints
             CreateLoanRequestDto body,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -152,6 +156,7 @@ public static class LoansEndpoints
             }
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/loans/{payload.Id}", payload);
         })
             .Produces<LoanDetailsDto>(StatusCodes.Status201Created);
@@ -160,9 +165,21 @@ public static class LoansEndpoints
             string id,
             UpdateLoanRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             ILoanRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             if (string.IsNullOrWhiteSpace(body.Status))
             {
                 return ApiErrors.Required(nameof(body.Status));
@@ -193,6 +210,7 @@ public static class LoansEndpoints
             }
 
             var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<LoanDetailsDto>(StatusCodes.Status200OK);
@@ -200,8 +218,19 @@ public static class LoansEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             ILoanRepository repository) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {

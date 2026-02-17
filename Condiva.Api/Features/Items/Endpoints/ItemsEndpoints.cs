@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Items.Data;
 using Condiva.Api.Features.Items.Dtos;
@@ -94,6 +95,7 @@ public static class ItemsEndpoints
             ClaimsPrincipal user,
             IItemRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             var actorUserId = GetUserId(user);
@@ -121,6 +123,7 @@ public static class ItemsEndpoints
             {
                 AllowedActions = AllowedActionsPolicy.ForItem(result.Data!, actorUserId, actorRole.Value)
             };
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<ItemDetailsDto>(StatusCodes.Status200OK);
@@ -129,7 +132,8 @@ public static class ItemsEndpoints
             CreateItemRequestDto body,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             if (string.IsNullOrWhiteSpace(body.Status))
             {
@@ -162,6 +166,7 @@ public static class ItemsEndpoints
             }
 
             var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/items/{payload.Id}", payload);
         })
             .Produces<ItemDetailsDto>(StatusCodes.Status201Created);
@@ -170,9 +175,21 @@ public static class ItemsEndpoints
             string id,
             UpdateItemRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             IItemRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             if (string.IsNullOrWhiteSpace(body.Status))
             {
                 return ApiErrors.Required(nameof(body.Status));
@@ -199,6 +216,7 @@ public static class ItemsEndpoints
             }
 
             var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<ItemDetailsDto>(StatusCodes.Status200OK);
@@ -206,8 +224,19 @@ public static class ItemsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             IItemRepository repository) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {

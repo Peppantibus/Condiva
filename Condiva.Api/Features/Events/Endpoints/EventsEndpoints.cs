@@ -1,4 +1,6 @@
-﻿using Condiva.Api.Common.Mapping;
+﻿using Condiva.Api.Common.Concurrency;
+using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Events.Data;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Events.Dtos;
@@ -45,7 +47,8 @@ public static class EventsEndpoints
             string id,
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
@@ -54,6 +57,7 @@ public static class EventsEndpoints
             }
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<EventDetailsDto>(StatusCodes.Status200OK);
@@ -62,7 +66,8 @@ public static class EventsEndpoints
             CreateEventRequestDto body,
             ClaimsPrincipal user,
             IEventRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             var model = new Event
             {
@@ -80,6 +85,7 @@ public static class EventsEndpoints
             }
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/events/{payload.Id}", payload);
         })
             .Produces<EventDetailsDto>(StatusCodes.Status201Created);
@@ -88,9 +94,21 @@ public static class EventsEndpoints
             string id,
             UpdateEventRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             IEventRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var model = new Event
             {
                 CommunityId = body.CommunityId,
@@ -107,6 +125,7 @@ public static class EventsEndpoints
             }
 
             var payload = mapper.Map<Event, EventDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<EventDetailsDto>(StatusCodes.Status200OK);
@@ -114,8 +133,19 @@ public static class EventsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             IEventRepository repository) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {

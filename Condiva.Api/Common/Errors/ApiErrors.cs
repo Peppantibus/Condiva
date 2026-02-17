@@ -58,6 +58,14 @@ public static class ApiErrors
             string.IsNullOrWhiteSpace(message) ? "Conflict." : message);
     }
 
+    public static IResult PreconditionFailed(string message)
+    {
+        return Build(
+            StatusCodes.Status412PreconditionFailed,
+            "precondition_failed",
+            string.IsNullOrWhiteSpace(message) ? "Precondition failed." : message);
+    }
+
     public static IResult Internal(string? message = null)
     {
         return Build(

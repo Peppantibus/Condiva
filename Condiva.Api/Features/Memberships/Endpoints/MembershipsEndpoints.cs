@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Communities.Dtos;
@@ -223,6 +224,7 @@ public static class MembershipsEndpoints
             ClaimsPrincipal user,
             IMembershipRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             var actorUserId = CurrentUser.GetUserId(user);
@@ -253,6 +255,7 @@ public static class MembershipsEndpoints
                     actorUserId,
                     actorRole.Value)
             };
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);
@@ -261,7 +264,8 @@ public static class MembershipsEndpoints
             CreateMembershipRequestDto body,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             var model = new Membership
             {
@@ -275,6 +279,7 @@ public static class MembershipsEndpoints
             }
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/memberships/{payload.Id}", payload);
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status201Created);
@@ -283,9 +288,21 @@ public static class MembershipsEndpoints
             string id,
             UpdateMembershipRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             if (string.IsNullOrWhiteSpace(body.Role))
             {
                 return ApiErrors.Required(nameof(body.Role));
@@ -320,6 +337,7 @@ public static class MembershipsEndpoints
             }
 
             var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);
@@ -347,8 +365,19 @@ public static class MembershipsEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             IMembershipRepository repository) =>
         {
+            var currentResult = await repository.GetByIdAsync(id, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
+            }
+
             var result = await repository.DeleteAsync(id, user);
             if (!result.IsSuccess)
             {

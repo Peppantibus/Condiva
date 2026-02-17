@@ -75,8 +75,8 @@ Regola stato:
   - Status: DONE
   - Scope: tutte le list response con schema unico + date ISO UTC
 
-- [ ] Concurrency control for updates
-  - Status: TODO
+- [x] Concurrency control for updates
+  - Status: DONE
   - Scope: ETag/If-Match o rowVersion su update/delete principali
 
 - [ ] OpenAPI fidelity and SDK validation pipeline
@@ -101,3 +101,4 @@ Regola stato:
 - 2026-02-17: completato `Ensure avatarUrl population in UserSummary everywhere` (mapper esteso con accesso servizi DI per firmare avatar URL da `ProfileImageKey` su items/requests/offers/loans/memberships + actor notifications, con test payload aggiornati).
 - 2026-02-17: completato `Canonical auth response shape` (login/google/refresh allineati su response unica `AuthSessionResponseDto` con `accessToken`, `expiresIn`, `tokenType`, `expiresAt`, `refreshTokenExpiresAt`, `user`; test auth aggiornati sul nuovo contratto).
 - 2026-02-17: completato `Uniform pagination/sorting/date contracts` (list endpoint uniformati su `PagedResponseDto` con `items/page/pageSize/total/sort/order`, ordinamenti di default esplicitati, converter JSON UTC per `DateTime`/`DateTime?`, notifiche allineate allo stesso contratto e test payload aggiornati su response paginate).
+- 2026-02-17: completato `Concurrency control for updates` (ETag deterministico su detail/create/update delle entita principali, supporto `If-Match` su `PUT/DELETE` per communities/items/requests/offers/loans/memberships/events con `412 precondition_failed` su mismatch, e test API aggiunti per header ETag + conflitto optimistic concurrency).

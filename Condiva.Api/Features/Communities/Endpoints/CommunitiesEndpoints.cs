@@ -1,6 +1,7 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Data;
@@ -85,6 +86,7 @@ public static class CommunitiesEndpoints
             ClaimsPrincipal user,
             ICommunityRepository repository,
             IMapper mapper,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             var actorUserId = GetUserId(user);
@@ -119,6 +121,7 @@ public static class CommunitiesEndpoints
             {
                 AllowedActions = AllowedActionsPolicy.ForCommunity(actorRole.Value)
             };
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<CommunityDetailsDto>(StatusCodes.Status200OK);
@@ -482,7 +485,8 @@ public static class CommunitiesEndpoints
             CreateCommunityRequestDto body,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
@@ -505,6 +509,7 @@ public static class CommunitiesEndpoints
             }
 
             var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Created($"/api/communities/{payload.Id}", payload);
         })
             .Produces<CommunityDetailsDto>(StatusCodes.Status201Created);
@@ -513,8 +518,10 @@ public static class CommunitiesEndpoints
             string id,
             UpdateCommunityRequestDto body,
             ClaimsPrincipal user,
+            HttpRequest request,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            HttpContext httpContext) =>
         {
             var actorUserId = GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
@@ -527,6 +534,16 @@ public static class CommunitiesEndpoints
             if (idError is not null)
             {
                 return idError;
+            }
+
+            var currentResult = await repository.GetByIdAsync(normalizedId!, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
             }
 
             var model = new Community
@@ -543,6 +560,7 @@ public static class CommunitiesEndpoints
             }
 
             var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            EntityTagHelper.Set(httpContext, result.Data!);
             return Results.Ok(payload);
         })
             .Produces<CommunityDetailsDto>(StatusCodes.Status200OK);
@@ -550,6 +568,7 @@ public static class CommunitiesEndpoints
         group.MapDelete("/{id}", async (
             string id,
             ClaimsPrincipal user,
+            HttpRequest request,
             ICommunityRepository repository) =>
         {
             var normalizedId = Normalize(id);
@@ -557,6 +576,16 @@ public static class CommunitiesEndpoints
             if (idError is not null)
             {
                 return idError;
+            }
+
+            var currentResult = await repository.GetByIdAsync(normalizedId!, user);
+            if (!currentResult.IsSuccess)
+            {
+                return currentResult.Error!;
+            }
+            if (!EntityTagHelper.IsIfMatchSatisfied(request.Headers.IfMatch.ToString(), currentResult.Data!))
+            {
+                return ApiErrors.PreconditionFailed("Resource version mismatch. Refresh and retry.");
             }
 
             var result = await repository.DeleteAsync(normalizedId!, user);
