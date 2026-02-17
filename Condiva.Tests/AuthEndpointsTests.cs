@@ -95,6 +95,12 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<AuthSessionResponse>();
+        Assert.NotNull(payload);
+        Assert.False(string.IsNullOrWhiteSpace(payload!.AccessToken));
+        Assert.True(payload.ExpiresIn > 0);
+        Assert.Equal("Bearer", payload.TokenType);
+        Assert.True(payload.ExpiresAt > DateTime.UtcNow.AddMinutes(-1));
         var cookieSettings = GetAuthCookieSettings();
 
         Assert.True(response.Headers.TryGetValues("Set-Cookie", out var setCookieValues));
@@ -149,6 +155,11 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
         var refreshResponse = await client.SendAsync(refreshRequest);
 
         Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+        var payload = await refreshResponse.Content.ReadFromJsonAsync<AuthSessionResponse>();
+        Assert.NotNull(payload);
+        Assert.False(string.IsNullOrWhiteSpace(payload!.AccessToken));
+        Assert.True(payload.ExpiresIn > 0);
+        Assert.Equal("Bearer", payload.TokenType);
         Assert.True(refreshResponse.Headers.TryGetValues("Set-Cookie", out var refreshSetCookieValues));
         Assert.Contains(refreshSetCookieValues!, cookie => cookie.StartsWith(
             $"{cookieSettings.RefreshToken.Name}=",
@@ -441,4 +452,19 @@ public sealed class AuthEndpointsTests : IClassFixture<CondivaApiFactory>
 
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
+
+    private sealed record AuthSessionResponse(
+        string AccessToken,
+        int ExpiresIn,
+        string TokenType,
+        DateTime ExpiresAt,
+        DateTime? RefreshTokenExpiresAt,
+        AuthSessionUser? User);
+
+    private sealed record AuthSessionUser(
+        string Id,
+        string Username,
+        string Email,
+        string? Name,
+        string? LastName);
 }

@@ -47,9 +47,9 @@ public static class AuthEndpoints
                     }
 
                     SetAuthCookies(httpContext, result.Value!, authCookieOptions.Value);
-                    return HttpResults.Ok(result.Value);
+                    return HttpResults.Ok(ToAuthSessionResponse(result.Value!));
                 })
-            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
+            .Produces<AuthSessionResponseDto>(StatusCodes.Status200OK);
 
         group.MapPost("/google",
                 async (
@@ -85,9 +85,9 @@ public static class AuthEndpoints
                     }
 
                     SetAuthCookies(httpContext, result.Value!, authCookieOptions.Value);
-                    return HttpResults.Ok(result.Value);
+                    return HttpResults.Ok(ToAuthSessionResponse(result.Value!));
                 })
-            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
+            .Produces<AuthSessionResponseDto>(StatusCodes.Status200OK);
 
         group.MapPost("/register",
                 async (
@@ -255,9 +255,9 @@ public static class AuthEndpoints
                     }
 
                     SetAuthCookies(httpContext, result.Value!, cookieSettings);
-                    return HttpResults.Ok(result.Value);
+                    return HttpResults.Ok(ToAuthSessionResponse(result.Value!));
                 })
-            .Produces<RefreshTokenDto>(StatusCodes.Status200OK);
+            .Produces<AuthSessionResponseDto>(StatusCodes.Status200OK);
 
         group.MapGet("/csrf",
                 (HttpContext httpContext, IOptions<AuthCookieSettings> authCookieOptions) =>
@@ -448,9 +448,96 @@ public static class AuthEndpoints
         return property.GetValue(instance) as string;
     }
 
+    private static DateTime? ExtractDateTimeProperty(object instance, string propertyName)
+    {
+        var property = instance.GetType().GetProperty(propertyName);
+        if (property is null)
+        {
+            return null;
+        }
+
+        var value = property.GetValue(instance);
+        return value switch
+        {
+            DateTime dateTime => dateTime,
+            DateTimeOffset dateTimeOffset => dateTimeOffset.UtcDateTime,
+            _ => null
+        };
+    }
+
+    private static AuthSessionUserDto? BuildAuthSessionUser(RefreshTokenDto tokenPayload)
+    {
+        var userProperty = tokenPayload.GetType().GetProperty("User");
+        var userValue = userProperty?.GetValue(tokenPayload);
+        if (userValue is null)
+        {
+            return null;
+        }
+
+        var id = Normalize(ExtractStringProperty(userValue, "Id"));
+        var username = Normalize(
+            ExtractStringProperty(userValue, "Username")
+            ?? ExtractStringProperty(userValue, "UserName"));
+        var email = Normalize(ExtractStringProperty(userValue, "Email"));
+        var name = Normalize(
+            ExtractStringProperty(userValue, "Name")
+            ?? ExtractStringProperty(userValue, "GivenName"));
+        var lastName = Normalize(
+            ExtractStringProperty(userValue, "LastName")
+            ?? ExtractStringProperty(userValue, "FamilyName"));
+
+        if (string.IsNullOrWhiteSpace(id)
+            && string.IsNullOrWhiteSpace(username)
+            && string.IsNullOrWhiteSpace(email))
+        {
+            return null;
+        }
+
+        return new AuthSessionUserDto(
+            id ?? string.Empty,
+            username ?? string.Empty,
+            email ?? string.Empty,
+            name,
+            lastName);
+    }
+
+    private static DateTime NormalizeDateTime(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => value
+        };
+    }
+
+    private static DateTime? NormalizeDateTime(DateTime? value)
+    {
+        return value.HasValue ? NormalizeDateTime(value.Value) : null;
+    }
+
     private static string? ReadCookie(HttpRequest request, string cookieName)
     {
         return request.Cookies.TryGetValue(cookieName, out var value) ? value : null;
+    }
+
+    private static AuthSessionResponseDto ToAuthSessionResponse(RefreshTokenDto tokenPayload)
+    {
+        var accessToken = Normalize(tokenPayload.AccessToken?.Token) ?? string.Empty;
+        var accessTokenExpiresAt = NormalizeDateTime(tokenPayload.AccessToken?.ExpiresAt ?? DateTime.UtcNow);
+        var expiresIn = Math.Max(
+            (int)Math.Ceiling((accessTokenExpiresAt - DateTime.UtcNow).TotalSeconds),
+            0);
+        var refreshTokenExpiresAt = NormalizeDateTime(ExtractDateTimeProperty(tokenPayload, "RefreshTokenExpiresAt"));
+        var user = BuildAuthSessionUser(tokenPayload);
+
+        return new AuthSessionResponseDto(
+            accessToken,
+            expiresIn,
+            "Bearer",
+            accessTokenExpiresAt,
+            refreshTokenExpiresAt,
+            user);
     }
 
     private static void SetAuthCookies(
@@ -547,6 +634,19 @@ public static class AuthEndpoints
     public sealed record ResendVerificationRequest(string Email);
     public sealed record RefreshTokenRequest(string? RefreshToken, string? Token);
     public sealed record CsrfTokenResponse(string CsrfToken);
+    public sealed record AuthSessionUserDto(
+        string Id,
+        string Username,
+        string Email,
+        string? Name,
+        string? LastName);
+    public sealed record AuthSessionResponseDto(
+        string AccessToken,
+        int ExpiresIn,
+        string TokenType,
+        DateTime ExpiresAt,
+        DateTime? RefreshTokenExpiresAt,
+        AuthSessionUserDto? User);
     public sealed record GoogleLoginRequest(
         string? IdToken,
         string? Credential,

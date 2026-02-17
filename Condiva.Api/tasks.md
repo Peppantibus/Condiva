@@ -67,8 +67,8 @@ Regola stato:
 
 ## P2 Contract consistency e platform quality
 
-- [ ] Canonical auth response shape
-  - Status: TODO
+- [x] Canonical auth response shape
+  - Status: DONE
   - Scope: login, google, refresh response uniforme
 
 - [ ] Uniform pagination/sorting/date contracts
@@ -99,3 +99,4 @@ Regola stato:
 - 2026-02-17: completato `Notifications enriched payload + proper unread-count` (`GET /api/notifications/unread-count` typed con `unreadCount`, `GET /api/notifications` arricchito con `message`, `actor`, `entitySummary`, `target` e test coverage dedicata).
 - 2026-02-17: completato `Media resolution strategy for list cards` (nuovo `POST /api/storage/resolve` batch per firmare piu `objectKeys` in una chiamata, dedup input, validazioni key e response typed con `items[]` + `expiresIn`).
 - 2026-02-17: completato `Ensure avatarUrl population in UserSummary everywhere` (mapper esteso con accesso servizi DI per firmare avatar URL da `ProfileImageKey` su items/requests/offers/loans/memberships + actor notifications, con test payload aggiornati).
+- 2026-02-17: completato `Canonical auth response shape` (login/google/refresh allineati su response unica `AuthSessionResponseDto` con `accessToken`, `expiresIn`, `tokenType`, `expiresAt`, `refreshTokenExpiresAt`, `user`; test auth aggiornati sul nuovo contratto).
