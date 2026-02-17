@@ -1,6 +1,7 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Data;
 using Condiva.Api.Features.Communities.Dtos;
@@ -26,6 +27,7 @@ public static class CommunitiesEndpoints
     private const int MaxPageSize = 100;
     private const int MaxIdLength = 64;
     private const int MaxCategoryLength = 64;
+    private const int MaxSearchLength = 128;
 
     public static IEndpointRouteBuilder MapCommunitiesEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -184,6 +186,152 @@ public static class CommunitiesEndpoints
             return Results.Created($"/api/memberships/{payload.Id}", payload);
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status201Created);
+
+        group.MapGet("/{id}/members", async (
+            string id,
+            string? search,
+            string? role,
+            string? status,
+            int? page,
+            int? pageSize,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var normalizedSearch = Normalize(search);
+            var searchError = ValidateSearch(normalizedSearch);
+            if (searchError is not null)
+            {
+                return searchError;
+            }
+
+            var normalizedRole = Normalize(role);
+            MembershipRole? roleFilter = null;
+            if (!string.IsNullOrWhiteSpace(normalizedRole))
+            {
+                if (!Enum.TryParse<MembershipRole>(normalizedRole, true, out var parsedRole))
+                {
+                    return ApiErrors.Invalid("Invalid role filter.");
+                }
+
+                roleFilter = parsedRole;
+            }
+
+            var normalizedStatus = Normalize(status);
+            MembershipStatus? statusFilter = null;
+            if (!string.IsNullOrWhiteSpace(normalizedStatus))
+            {
+                if (!Enum.TryParse<MembershipStatus>(normalizedStatus, true, out var parsedStatus))
+                {
+                    return ApiErrors.Invalid("Invalid status filter.");
+                }
+
+                statusFilter = parsedStatus;
+            }
+
+            var actorMembership = await dbContext.Memberships.AsNoTracking().FirstOrDefaultAsync(membership =>
+                membership.CommunityId == communityId
+                && membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active);
+            if (actorMembership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var pageNumber = ClampPage(page);
+            var size = ClampPageSize(pageSize);
+
+            var query = dbContext.Memberships
+                .AsNoTracking()
+                .Include(membership => membership.User)
+                .Where(membership => membership.CommunityId == communityId);
+
+            if (roleFilter.HasValue)
+            {
+                query = query.Where(membership => membership.Role == roleFilter.Value);
+            }
+
+            if (statusFilter.HasValue)
+            {
+                query = query.Where(membership => membership.Status == statusFilter.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(normalizedSearch))
+            {
+                query = query.Where(membership =>
+                    membership.UserId.Contains(normalizedSearch)
+                    || (membership.User != null
+                        && (
+                            (membership.User.Username ?? string.Empty).Contains(normalizedSearch)
+                            || (membership.User.Name ?? string.Empty).Contains(normalizedSearch)
+                            || (membership.User.LastName ?? string.Empty).Contains(normalizedSearch)
+                            || (((membership.User.Name ?? string.Empty) + " " + (membership.User.LastName ?? string.Empty))
+                                .Contains(normalizedSearch)))));
+            }
+
+            var total = await query.CountAsync();
+            var members = await query
+                .OrderByDescending(membership => membership.JoinedAt ?? membership.CreatedAt)
+                .ThenBy(membership => membership.Id)
+                .Skip((pageNumber - 1) * size)
+                .Take(size)
+                .ToListAsync();
+
+            var memberUserIds = members
+                .Select(membership => membership.UserId)
+                .Distinct()
+                .ToArray();
+            var reputationsByUserId = await dbContext.Reputations
+                .AsNoTracking()
+                .Where(reputation =>
+                    reputation.CommunityId == communityId
+                    && memberUserIds.Contains(reputation.UserId))
+                .ToDictionaryAsync(reputation => reputation.UserId);
+
+            var payload = members
+                .Select(membership =>
+                {
+                    reputationsByUserId.TryGetValue(membership.UserId, out var reputation);
+                    var reputationSummary = new CommunityMemberReputationSummaryDto(
+                        reputation?.Score ?? 0,
+                        reputation?.LendCount ?? 0,
+                        reputation?.ReturnCount ?? 0,
+                        reputation?.OnTimeReturnCount ?? 0);
+
+                    return new CommunityMemberListItemDto(
+                        membership.Id,
+                        membership.UserId,
+                        membership.CommunityId,
+                        membership.Role.ToString(),
+                        membership.Status.ToString(),
+                        membership.JoinedAt,
+                        BuildUserSummary(membership.User, membership.UserId, storageService),
+                        reputationSummary,
+                        AllowedActionsPolicy.ForMembership(membership, actorUserId, actorMembership.Role));
+                })
+                .ToList();
+
+            return Results.Ok(new PagedResponseDto<CommunityMemberListItemDto>(
+                payload,
+                pageNumber,
+                size,
+                total));
+        })
+            .Produces<PagedResponseDto<CommunityMemberListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}/requests/feed", async (
             string id,
@@ -750,6 +898,49 @@ public static class CommunitiesEndpoints
         return category.Length > MaxCategoryLength
             ? ApiErrors.Invalid("Category is too long.")
             : null;
+    }
+
+    private static IResult? ValidateSearch(string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return null;
+        }
+
+        return search.Length > MaxSearchLength
+            ? ApiErrors.Invalid("Search filter is too long.")
+            : null;
+    }
+
+    private static UserSummaryDto BuildUserSummary(
+        User? user,
+        string fallbackUserId,
+        IR2StorageService storageService)
+    {
+        if (user is null)
+        {
+            return new UserSummaryDto(fallbackUserId, string.Empty, string.Empty, null);
+        }
+
+        var displayName = string.Empty;
+        if (!string.IsNullOrWhiteSpace(user.Name) || !string.IsNullOrWhiteSpace(user.LastName))
+        {
+            displayName = $"{user.Name} {user.LastName}".Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(user.Username))
+        {
+            displayName = user.Username;
+        }
+        else
+        {
+            displayName = user.Id;
+        }
+
+        var avatarUrl = string.IsNullOrWhiteSpace(user.ProfileImageKey)
+            ? null
+            : storageService.GeneratePresignedGetUrl(user.ProfileImageKey, DownloadPresignTtlSeconds);
+
+        return new UserSummaryDto(user.Id, displayName, user.Username ?? string.Empty, avatarUrl);
     }
 
     private static string? Normalize(string? value)

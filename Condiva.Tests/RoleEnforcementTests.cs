@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Idempotency;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
@@ -25,6 +26,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using RequestModel = Condiva.Api.Features.Requests.Models.Request;
 using Condiva.Api.Features.Memberships.Models;
+using Condiva.Api.Features.Reputations.Models;
 
 namespace Condiva.Tests;
 
@@ -926,6 +928,69 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task CommunityMembersEndpoint_AsMember_ReturnsPagedMembersWithReputation()
+    {
+        var ownerId = "members-endpoint-owner";
+        var memberId = "members-endpoint-member";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+        await SeedReputationAsync(communityId, memberId, 12, 4, 4, 3);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/members?page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<CommunityMemberListItemDto>>();
+        Assert.NotNull(payload);
+        Assert.Equal(1, payload!.Page);
+        Assert.Equal(10, payload.PageSize);
+        Assert.Equal(2, payload.Total);
+
+        var member = payload.Items.FirstOrDefault(item => item.UserId == memberId);
+        Assert.NotNull(member);
+        Assert.Equal(12, member!.ReputationSummary.Score);
+        Assert.Equal(4, member.ReputationSummary.LendCount);
+        Assert.Equal(4, member.ReputationSummary.ReturnCount);
+        Assert.Equal(3, member.ReputationSummary.OnTimeReturnCount);
+    }
+
+    [Fact]
+    public async Task CommunityMembersEndpoint_SupportsRoleStatusAndSearchFilters()
+    {
+        var ownerId = "members-filter-owner";
+        var memberId = "members-filter-member";
+        var moderatorId = "members-filter-moderator";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.GetAsync(
+            $"/api/communities/{communityId}/members?role=Moderator&status=Active&search=moderator&page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<CommunityMemberListItemDto>>();
+        Assert.NotNull(payload);
+        Assert.Equal(1, payload!.Total);
+        Assert.Single(payload.Items);
+        Assert.Equal(moderatorId, payload.Items[0].UserId);
+    }
+
+    [Fact]
+    public async Task CommunityMembersEndpoint_AsNonMember_ReturnsForbidden()
+    {
+        var ownerId = "members-non-member-owner";
+        var outsiderId = "members-non-member-outsider";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await SeedUserAsync(outsiderId);
+
+        using var client = CreateClientWithToken(outsiderId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/members?page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var payload = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("forbidden", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task CreateRequest_AboveDailyLimit_ReturnsBadRequest()
     {
         var requesterId = "limit-requester";
@@ -1718,6 +1783,46 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         return await dbContext.Memberships.CountAsync(membership =>
             membership.CommunityId == communityId
             && membership.UserId == userId);
+    }
+
+    private async Task SeedReputationAsync(
+        string communityId,
+        string userId,
+        int score,
+        int lendCount,
+        int returnCount,
+        int onTimeReturnCount)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var existing = await dbContext.Reputations.FirstOrDefaultAsync(reputation =>
+            reputation.CommunityId == communityId
+            && reputation.UserId == userId);
+        if (existing is null)
+        {
+            dbContext.Reputations.Add(new ReputationProfile
+            {
+                Id = Guid.NewGuid().ToString(),
+                CommunityId = communityId,
+                UserId = userId,
+                Score = score,
+                LendCount = lendCount,
+                ReturnCount = returnCount,
+                OnTimeReturnCount = onTimeReturnCount,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.Score = score;
+            existing.LendCount = lendCount;
+            existing.ReturnCount = returnCount;
+            existing.OnTimeReturnCount = onTimeReturnCount;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await dbContext.SaveChangesAsync();
     }
 
     private string CreateJwt(string userId)

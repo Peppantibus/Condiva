@@ -33,8 +33,8 @@ Regola stato:
 
 ## P1 Performance e query model
 
-- [ ] Members endpoint per community, paginato e filtrabile
-  - Status: TODO
+- [x] Members endpoint per community, paginato e filtrabile
+  - Status: DONE
   - Scope: `GET /api/communities/{id}/members` con `page,pageSize,search,role,status`
 
 - [ ] Request offers include item summary
@@ -91,3 +91,4 @@ Regola stato:
 - 2026-02-17: completato `Standard error envelope` (envelope uniforme + traceId + fields validazione + handler globale 500).
 - 2026-02-17: completato `CSRF/session contract hardening` (error envelope uniforme nel middleware CSRF, logout protetto da CSRF, endpoint rotazione token CSRF, CORS origin allowlist centralizzata).
 - 2026-02-17: completato `Idempotency-Key on critical POST` (middleware su POST critici con replay response persistita, conflitto su payload differente, CORS aggiornato per header Idempotency-Key).
+- 2026-02-17: completato `Members endpoint per community, paginato e filtrabile` (nuovo `GET /api/communities/{id}/members` con filtri `search/role/status`, payload user+reputation, paginazione server-side e test coverage dedicata).
