@@ -49,57 +49,61 @@ public static class NotificationsEndpoints
                 .Where(notification => !string.IsNullOrWhiteSpace(notification.EventId))
                 .Select(notification => notification.EventId!)
                 .Distinct()
-                .ToArray();
+                .ToList();
             var offerIds = notifications
                 .Where(notification =>
                     string.Equals(notification.EntityType, "Offer", StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(notification.EntityId))
                 .Select(notification => notification.EntityId!)
                 .Distinct()
-                .ToArray();
+                .ToList();
             var loanIds = notifications
                 .Where(notification =>
                     string.Equals(notification.EntityType, "Loan", StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(notification.EntityId))
                 .Select(notification => notification.EntityId!)
                 .Distinct()
-                .ToArray();
+                .ToList();
             var requestIds = notifications
                 .Where(notification =>
                     string.Equals(notification.EntityType, "Request", StringComparison.OrdinalIgnoreCase)
                     && !string.IsNullOrWhiteSpace(notification.EntityId))
                 .Select(notification => notification.EntityId!)
                 .Distinct()
-                .ToArray();
+                .ToList();
 
-            var eventsById = eventIds.Length == 0
+            var eventsById = eventIds.Count == 0
                 ? new Dictionary<string, Event>(StringComparer.Ordinal)
-                : await dbContext.Events
+                : (await dbContext.Events
                     .AsNoTracking()
                     .Include(evt => evt.ActorUser)
                     .Where(evt => eventIds.Contains(evt.Id))
-                    .ToDictionaryAsync(evt => evt.Id, StringComparer.Ordinal);
-            var offersById = offerIds.Length == 0
+                    .ToListAsync())
+                    .ToDictionary(evt => evt.Id, StringComparer.Ordinal);
+            var offersById = offerIds.Count == 0
                 ? new Dictionary<string, Offer>(StringComparer.Ordinal)
-                : await dbContext.Offers
+                : (await dbContext.Offers
                     .AsNoTracking()
                     .Include(offer => offer.Item)
                     .Include(offer => offer.Request)
                     .Where(offer => offerIds.Contains(offer.Id))
-                    .ToDictionaryAsync(offer => offer.Id, StringComparer.Ordinal);
-            var loansById = loanIds.Length == 0
+                    .ToListAsync())
+                    .ToDictionary(offer => offer.Id, StringComparer.Ordinal);
+            var loansById = loanIds.Count == 0
                 ? new Dictionary<string, Loan>(StringComparer.Ordinal)
-                : await dbContext.Loans
+                : (await dbContext.Loans
                     .AsNoTracking()
                     .Include(loan => loan.Item)
                     .Where(loan => loanIds.Contains(loan.Id))
-                    .ToDictionaryAsync(loan => loan.Id, StringComparer.Ordinal);
-            var requestsById = requestIds.Length == 0
+                    .ToListAsync())
+                    .ToDictionary(loan => loan.Id, StringComparer.Ordinal);
+            var requestsById = requestIds.Count == 0
                 ? new Dictionary<string, Request>(StringComparer.Ordinal)
-                : await dbContext.Requests
+                : (await dbContext.Requests
                     .AsNoTracking()
                     .Where(request => requestIds.Contains(request.Id))
-                    .ToDictionaryAsync(request => request.Id, StringComparer.Ordinal);
+                    .ToListAsync())
+                    .ToDictionary(request => request.Id, StringComparer.Ordinal);
 
             var items = notifications
                 .Select(notification =>

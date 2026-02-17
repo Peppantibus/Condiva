@@ -304,13 +304,14 @@ public static class CommunitiesEndpoints
             var memberUserIds = members
                 .Select(membership => membership.UserId)
                 .Distinct()
-                .ToArray();
-            var reputationsByUserId = await dbContext.Reputations
+                .ToList();
+            var reputationsByUserId = (await dbContext.Reputations
                 .AsNoTracking()
                 .Where(reputation =>
                     reputation.CommunityId == communityId
                     && memberUserIds.Contains(reputation.UserId))
-                .ToDictionaryAsync(reputation => reputation.UserId);
+                .ToListAsync())
+                .ToDictionary(reputation => reputation.UserId, StringComparer.Ordinal);
 
             var payload = members
                 .Select(membership =>
