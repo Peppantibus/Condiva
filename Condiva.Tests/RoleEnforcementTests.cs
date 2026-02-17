@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
+using Condiva.Api.Common.Idempotency;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Items.Models;
@@ -856,6 +857,75 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task JoinCommunity_SameIdempotencyKeySamePayload_ReplaysCreatedAndAvoidsDuplicates()
+    {
+        var ownerId = "join-idempotent-owner";
+        var memberId = "join-idempotent-member";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await SeedUserAsync(memberId);
+        var enterCode = await GetEnterCodeAsync(communityId);
+        var idempotencyKey = Guid.NewGuid().ToString("N");
+
+        using var client = CreateClientWithToken(memberId);
+        var firstRequest = new HttpRequestMessage(HttpMethod.Post, "/api/communities/join")
+        {
+            Content = JsonContent.Create(new { EnterCode = enterCode })
+        };
+        firstRequest.Headers.Add(IdempotencyHeaders.Key, idempotencyKey);
+
+        var firstResponse = await client.SendAsync(firstRequest);
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        var secondRequest = new HttpRequestMessage(HttpMethod.Post, "/api/communities/join")
+        {
+            Content = JsonContent.Create(new { EnterCode = enterCode })
+        };
+        secondRequest.Headers.Add(IdempotencyHeaders.Key, idempotencyKey);
+
+        var secondResponse = await client.SendAsync(secondRequest);
+        Assert.Equal(HttpStatusCode.Created, secondResponse.StatusCode);
+        Assert.True(secondResponse.Headers.TryGetValues(IdempotencyHeaders.Replayed, out var replayValues));
+        Assert.Equal("true", replayValues!.Single());
+
+        var membershipCount = await GetMembershipCountAsync(communityId, memberId);
+        Assert.Equal(1, membershipCount);
+    }
+
+    [Fact]
+    public async Task JoinCommunity_SameIdempotencyKeyDifferentPayload_ReturnsConflict()
+    {
+        var ownerId = "join-idempotent-owner-conflict";
+        var memberId = "join-idempotent-member-conflict";
+        var firstCommunityId = await SeedCommunityWithMembersAsync(ownerId);
+        var secondCommunityId = await SeedCommunityWithMembersAsync(ownerId);
+        await SeedUserAsync(memberId);
+
+        var firstEnterCode = await GetEnterCodeAsync(firstCommunityId);
+        var secondEnterCode = await GetEnterCodeAsync(secondCommunityId);
+        var idempotencyKey = Guid.NewGuid().ToString("N");
+
+        using var client = CreateClientWithToken(memberId);
+        var firstRequest = new HttpRequestMessage(HttpMethod.Post, "/api/communities/join")
+        {
+            Content = JsonContent.Create(new { EnterCode = firstEnterCode })
+        };
+        firstRequest.Headers.Add(IdempotencyHeaders.Key, idempotencyKey);
+        var firstResponse = await client.SendAsync(firstRequest);
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        var secondRequest = new HttpRequestMessage(HttpMethod.Post, "/api/communities/join")
+        {
+            Content = JsonContent.Create(new { EnterCode = secondEnterCode })
+        };
+        secondRequest.Headers.Add(IdempotencyHeaders.Key, idempotencyKey);
+        var secondResponse = await client.SendAsync(secondRequest);
+
+        Assert.Equal(HttpStatusCode.Conflict, secondResponse.StatusCode);
+        using var payload = await JsonDocument.ParseAsync(await secondResponse.Content.ReadAsStreamAsync());
+        Assert.Equal("conflict", payload.RootElement.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task CreateRequest_AboveDailyLimit_ReturnsBadRequest()
     {
         var requesterId = "limit-requester";
@@ -1638,6 +1708,16 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         }
 
         return membership.Id;
+    }
+
+    private async Task<int> GetMembershipCountAsync(string communityId, string userId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        return await dbContext.Memberships.CountAsync(membership =>
+            membership.CommunityId == communityId
+            && membership.UserId == userId);
     }
 
     private string CreateJwt(string userId)

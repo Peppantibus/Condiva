@@ -1,5 +1,6 @@
 using AuthLibrary.Models;
 using Condiva.Api.Common.Auth.Models;
+using Condiva.Api.Common.Idempotency.Models;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Events.Models;
 using Condiva.Api.Features.Items.Models;
@@ -32,6 +33,7 @@ public class CondivaDbContext : DbContext
     public DbSet<NotificationRule> NotificationRuleMappings => Set<NotificationRule>();
     public DbSet<NotificationDispatchState> NotificationDispatchStates => Set<NotificationDispatchState>();
     public DbSet<ReputationProfile> Reputations => Set<ReputationProfile>();
+    public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,6 +69,34 @@ public class CondivaDbContext : DbContext
             .IsUnique();
         modelBuilder.Entity<NotificationDispatchState>().HasKey(state => state.Id);
         modelBuilder.Entity<ReputationProfile>().HasKey(reputation => reputation.Id);
+        modelBuilder.Entity<IdempotencyRecord>().HasKey(record => record.Id);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .HasIndex(record => new
+            {
+                record.ActorUserId,
+                record.Method,
+                record.Path,
+                record.IdempotencyKey
+            })
+            .IsUnique();
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.ActorUserId)
+            .HasMaxLength(128);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.Method)
+            .HasMaxLength(16);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.Path)
+            .HasMaxLength(256);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.IdempotencyKey)
+            .HasMaxLength(128);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.RequestHash)
+            .HasMaxLength(128);
+        modelBuilder.Entity<IdempotencyRecord>()
+            .Property(record => record.ResponseLocation)
+            .HasMaxLength(512);
 
         modelBuilder.Entity<User>()
             .HasMany(user => user.EmailVerifiedTokens)

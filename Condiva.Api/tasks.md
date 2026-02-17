@@ -27,8 +27,8 @@ Regola stato:
   - Status: DONE
   - Scope: cookie auth/session, rotazione CSRF, CORS allowlist
 
-- [ ] Idempotency-Key on critical POST
-  - Status: TODO
+- [x] Idempotency-Key on critical POST
+  - Status: DONE
   - Scope: create item/request/offer/loan, join community, rotate invite
 
 ## P1 Performance e query model
@@ -90,3 +90,4 @@ Regola stato:
 - 2026-02-17: completato `Authorization matrix + allowedActions` (allowedActions su list/detail + 403 su permessi mutativi mancanti).
 - 2026-02-17: completato `Standard error envelope` (envelope uniforme + traceId + fields validazione + handler globale 500).
 - 2026-02-17: completato `CSRF/session contract hardening` (error envelope uniforme nel middleware CSRF, logout protetto da CSRF, endpoint rotazione token CSRF, CORS origin allowlist centralizzata).
+- 2026-02-17: completato `Idempotency-Key on critical POST` (middleware su POST critici con replay response persistita, conflitto su payload differente, CORS aggiornato per header Idempotency-Key).

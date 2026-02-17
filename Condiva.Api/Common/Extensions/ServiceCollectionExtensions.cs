@@ -9,6 +9,8 @@ using Condiva.Api.Common.Auth.Configuration;
 using Condiva.Api.Common.Auth.Data;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Auth.Services;
+using Condiva.Api.Common.Idempotency;
+using Condiva.Api.Common.Idempotency.Configuration;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Common.Security;
 using Condiva.Api.Features.Communities;
@@ -79,6 +81,7 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
         services.Configure<AuthCookieSettings>(configuration.GetSection("AuthCookies"));
+        services.Configure<IdempotencySettings>(configuration.GetSection("Idempotency"));
         services.AddScoped<IExternalUserFactory<User>, ExternalUserFactory>();
         services.AddAuthLibrary<User>(configuration);
 
@@ -179,8 +182,15 @@ public static class ServiceCollectionExtensions
             {
                 policy.WithOrigins(corsOrigins)
                     .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-                    .WithHeaders("Content-Type", "Authorization", AuthSecurityHeaders.CsrfToken)
-                    .WithExposedHeaders(AuthSecurityHeaders.CsrfToken, "WWW-Authenticate")
+                    .WithHeaders(
+                        "Content-Type",
+                        "Authorization",
+                        AuthSecurityHeaders.CsrfToken,
+                        IdempotencyHeaders.Key)
+                    .WithExposedHeaders(
+                        AuthSecurityHeaders.CsrfToken,
+                        IdempotencyHeaders.Replayed,
+                        "WWW-Authenticate")
                     .AllowCredentials()
                     .SetPreflightMaxAge(TimeSpan.FromHours(1));
             });

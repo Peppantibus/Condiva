@@ -54,6 +54,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseCsrfProtection();
 app.UseAuthorization();
+app.UseIdempotencyKey();
 
 app.MapAuthEndpoints();
 app.MapUsersEndpoints();
