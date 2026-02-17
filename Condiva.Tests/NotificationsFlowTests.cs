@@ -122,6 +122,59 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetNotifications_IncludesEnrichedPayloadForOfferNotification()
+    {
+        var requesterId = "notif-enriched-requester";
+        var lenderId = "notif-enriched-lender";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using (var offerClient = CreateClientWithToken(lenderId))
+        {
+            var createOfferResponse = await offerClient.PostAsJsonAsync("/api/offers", new
+            {
+                CommunityId = communityId,
+                OffererUserId = lenderId,
+                RequestId = requestId,
+                ItemId = itemId,
+                Message = "Offer",
+                Status = "Open"
+            });
+
+            Assert.Equal(HttpStatusCode.Created, createOfferResponse.StatusCode);
+        }
+
+        await ProcessNotificationsAsync();
+
+        using var requesterClient = CreateClientWithToken(requesterId);
+        var response = await requesterClient.GetAsync(
+            $"/api/notifications?communityId={communityId}&page=1&pageSize=20");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<Condiva.Api.Common.Results.PagedResult<NotificationListItemDto>>();
+        Assert.NotNull(payload);
+
+        var notification = Assert.Single(payload!.Items
+            .Where(item => item.Type == NotificationType.OfferReceivedToRequester));
+        Assert.False(string.IsNullOrWhiteSpace(notification.Message));
+        Assert.Contains("offerta", notification.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(notification.Actor);
+        Assert.Equal(lenderId, notification.Actor!.Id);
+        Assert.Equal($"{lenderId}-name", notification.Actor.Username);
+
+        Assert.NotNull(notification.EntitySummary);
+        Assert.Equal("Offer", notification.EntitySummary!.EntityType);
+        Assert.Equal("Test item", notification.EntitySummary.Label);
+        Assert.Equal("Open", notification.EntitySummary.Status);
+
+        Assert.NotNull(notification.Target);
+        Assert.Equal($"/requests/{requestId}", notification.Target!.Route);
+        Assert.Equal("Request", notification.Target.EntityType);
+        Assert.Equal(requestId, notification.Target.EntityId);
+    }
+
+    [Fact]
     public async Task BulkMarkRead_MarksNotifications()
     {
         var userId = "notif-bulk";
@@ -159,7 +212,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
 
         var payload = await response.Content.ReadFromJsonAsync<UnreadCountResponse>();
         Assert.NotNull(payload);
-        Assert.Equal(1, payload!.Count);
+        Assert.Equal(1, payload!.UnreadCount);
     }
 
     private HttpClient CreateClientWithToken(string userId)
@@ -375,7 +428,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         await processor.ProcessBatchAsync(default);
     }
 
-    private sealed record UnreadCountResponse(int Count);
+    private sealed record UnreadCountResponse(int UnreadCount);
 
     private string CreateJwt(string userId)
     {

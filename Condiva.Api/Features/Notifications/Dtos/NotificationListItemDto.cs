@@ -1,4 +1,5 @@
 using Condiva.Api.Features.Notifications.Models;
+using Condiva.Api.Common.Dtos;
 
 namespace Condiva.Api.Features.Notifications.Dtos;
 
@@ -11,4 +12,8 @@ public sealed record NotificationListItemDto(
     string? EntityId,
     NotificationStatus Status,
     DateTime CreatedAt,
-    DateTime? ReadAt);
+    DateTime? ReadAt,
+    string Message,
+    UserSummaryDto? Actor,
+    NotificationEntitySummaryDto? EntitySummary,
+    NotificationTargetDto? Target);

@@ -16,7 +16,11 @@ public static class NotificationMappings
             notification.EntityId,
             notification.Status,
             notification.CreatedAt,
-            notification.ReadAt));
+            notification.ReadAt,
+            string.Empty,
+            null,
+            null,
+            null));
 
         registry.Register<Notification, NotificationDetailsDto>(notification => new NotificationDetailsDto(
             notification.Id,
