@@ -34,6 +34,12 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("NotificationProcessing__Enabled", "false");
         Environment.SetEnvironmentVariable("NotificationProcessing__PollIntervalSeconds", "1");
         Environment.SetEnvironmentVariable("NotificationProcessing__BatchSize", "50");
+        Environment.SetEnvironmentVariable("CloudFlareR2__AccountId", "test-account");
+        Environment.SetEnvironmentVariable("CloudFlareR2__AccessKeyId", "test-access-key");
+        Environment.SetEnvironmentVariable("CloudFlareR2__AccessKeySecret", "test-secret-key");
+        Environment.SetEnvironmentVariable("CloudFlareR2__Bucket", "test-bucket");
+        Environment.SetEnvironmentVariable("CloudFlareR2__Endpoint", "https://example.r2.cloudflarestorage.com");
+        Environment.SetEnvironmentVariable("CloudFlareR2__PresignTtlSeconds", "900");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

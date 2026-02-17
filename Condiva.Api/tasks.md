@@ -57,8 +57,8 @@ Regola stato:
   - Status: DONE
   - Scope: unread-count typed + notifications con actor/entitySummary/target
 
-- [ ] Media resolution strategy for list cards
-  - Status: TODO
+- [x] Media resolution strategy for list cards
+  - Status: DONE
   - Scope: signed `imageUrl` in list o endpoint batch resolve
 
 - [ ] Ensure avatarUrl population in UserSummary everywhere
@@ -97,3 +97,4 @@ Regola stato:
 - 2026-02-17: completato `Server-side filtering for items/loans/my views` (items con filtri `owner/status/category/search/sort` + paging opzionale, loans con filtro `perspective=lent|borrowed`, test di filtro/paging aggiornati).
 - 2026-02-17: completato `My communities endpoint with membership context` (nuovo `GET /api/memberships/me/communities-context` con dati community + ruolo/stato membership + action sets).
 - 2026-02-17: completato `Notifications enriched payload + proper unread-count` (`GET /api/notifications/unread-count` typed con `unreadCount`, `GET /api/notifications` arricchito con `message`, `actor`, `entitySummary`, `target` e test coverage dedicata).
+- 2026-02-17: completato `Media resolution strategy for list cards` (nuovo `POST /api/storage/resolve` batch per firmare piu `objectKeys` in una chiamata, dedup input, validazioni key e response typed con `items[]` + `expiresIn`).

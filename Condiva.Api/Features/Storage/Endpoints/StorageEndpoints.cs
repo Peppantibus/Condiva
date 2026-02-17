@@ -10,6 +10,7 @@ namespace Condiva.Api.Features.Storage.Endpoints;
 public static class StorageEndpoints
 {
     private const int DownloadPresignTtlSeconds = 300;
+    private const int MaxResolveBatchSize = 100;
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
@@ -54,6 +55,46 @@ public static class StorageEndpoints
             return Results.Ok(payload);
         })
             .Produces<StoragePresignResponseDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status400BadRequest);
+
+        group.MapPost("/resolve", (
+            StorageResolveRequestDto body,
+            IR2StorageService storageService) =>
+        {
+            if (body.ObjectKeys is null || body.ObjectKeys.Count == 0)
+            {
+                return ApiErrors.Required(nameof(body.ObjectKeys));
+            }
+
+            if (body.ObjectKeys.Count > MaxResolveBatchSize)
+            {
+                return ApiErrors.Invalid($"Too many objectKeys. Max {MaxResolveBatchSize}.");
+            }
+
+            var normalizedKeys = new List<string>(body.ObjectKeys.Count);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var objectKey in body.ObjectKeys)
+            {
+                if (!TryNormalizeObjectKey(objectKey, out var normalizedKey))
+                {
+                    return ApiErrors.Invalid("Invalid key.");
+                }
+
+                if (seen.Add(normalizedKey))
+                {
+                    normalizedKeys.Add(normalizedKey);
+                }
+            }
+
+            var items = normalizedKeys
+                .Select(objectKey => new StorageResolveItemDto(
+                    objectKey,
+                    storageService.GeneratePresignedGetUrl(objectKey, DownloadPresignTtlSeconds)))
+                .ToList();
+            var payload = new StorageResolveResponseDto(items, DownloadPresignTtlSeconds);
+            return Results.Ok(payload);
+        })
+            .Produces<StorageResolveResponseDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status400BadRequest);
 
         group.MapGet("/{**key}", (
