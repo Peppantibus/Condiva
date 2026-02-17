@@ -11,4 +11,5 @@ public sealed record MembershipDetailsDto(
     string? InvitedByUserId,
     DateTime CreatedAt,
     DateTime? JoinedAt,
-    UserSummaryDto Users);
+    UserSummaryDto Users,
+    string[]? AllowedActions = null);

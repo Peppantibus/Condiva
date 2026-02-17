@@ -13,4 +13,5 @@ public sealed record ItemDetailsDto(
     string Status,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    UserSummaryDto Owner);
+    UserSummaryDto Owner,
+    string[]? AllowedActions = null);

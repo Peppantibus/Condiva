@@ -4,10 +4,12 @@ using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Loans.Models;
+using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Data;
 using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Offers.Models;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
@@ -25,15 +27,53 @@ public static class OffersEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Offer, OfferListItemDto>(result.Data!)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var requestIds = result.Data!
+                .Where(offer => !string.IsNullOrWhiteSpace(offer.RequestId))
+                .Select(offer => offer.RequestId!)
+                .Distinct()
+                .ToList();
+            var ownedRequestIds = requestIds.Count == 0
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : await dbContext.Requests
+                    .Where(request => request.RequesterUserId == actorUserId && requestIds.Contains(request.Id))
+                    .Select(request => request.Id)
+                    .ToHashSetAsync();
+
+            var payload = result.Data!
+                .Select(offer =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(offer.CommunityId, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+                    var isRequestOwner = !string.IsNullOrWhiteSpace(offer.RequestId)
+                        && ownedRequestIds.Contains(offer.RequestId!);
+
+                    return mapper.Map<Offer, OfferListItemDto>(offer) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForOffer(
+                            offer,
+                            actorUserId,
+                            actorRole,
+                            isRequestOwner)
+                    };
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -43,15 +83,46 @@ public static class OffersEndpoints
             string id,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var isRequestOwner = false;
+            if (!string.IsNullOrWhiteSpace(result.Data!.RequestId))
+            {
+                isRequestOwner = await dbContext.Requests.AnyAsync(request =>
+                    request.Id == result.Data.RequestId
+                    && request.RequesterUserId == actorUserId);
+            }
+
+            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForOffer(
+                    result.Data!,
+                    actorUserId,
+                    actorRole.Value,
+                    isRequestOwner)
+            };
             return Results.Ok(payload);
         })
             .Produces<OfferDetailsDto>(StatusCodes.Status200OK);
@@ -63,15 +134,54 @@ public static class OffersEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             IOfferRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetMineAsync(communityId, status, page, pageSize, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Offer, OfferListItemDto>(result.Data!.Items).ToList();
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var requestIds = result.Data!.Items
+                .Where(offer => !string.IsNullOrWhiteSpace(offer.RequestId))
+                .Select(offer => offer.RequestId!)
+                .Distinct()
+                .ToList();
+            var ownedRequestIds = requestIds.Count == 0
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : await dbContext.Requests
+                    .Where(request => request.RequesterUserId == actorUserId && requestIds.Contains(request.Id))
+                    .Select(request => request.Id)
+                    .ToHashSetAsync();
+
+            var mapped = result.Data!.Items
+                .Select(offer =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(offer.CommunityId, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+                    var isRequestOwner = !string.IsNullOrWhiteSpace(offer.RequestId)
+                        && ownedRequestIds.Contains(offer.RequestId!);
+
+                    return mapper.Map<Offer, OfferListItemDto>(offer) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForOffer(
+                            offer,
+                            actorUserId,
+                            actorRole,
+                            isRequestOwner)
+                    };
+                })
+                .ToList();
             var payload = new PagedResponseDto<OfferListItemDto>(
                 mapped,
                 result.Data.Page,

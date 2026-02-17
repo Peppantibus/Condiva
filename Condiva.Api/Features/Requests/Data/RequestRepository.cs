@@ -227,7 +227,7 @@ public sealed class RequestRepository : IRequestRepository
         if (!isMember)
         {
             return RepositoryResult<Request>.Failure(
-                ApiErrors.Invalid("RequesterUserId is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var normalizedTitle = NormalizeText(body.Title);
         var normalizedDescription = NormalizeText(body.Description);
@@ -281,14 +281,14 @@ public sealed class RequestRepository : IRequestRepository
         if (membership is null)
         {
             return RepositoryResult<Request>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<Request>.Failure(
-                ApiErrors.Invalid("User is not allowed to update the request."));
+                ApiErrors.Forbidden("User is not allowed to update the request."));
         }
         if (request.Status != RequestStatus.Open)
         {
@@ -374,14 +374,14 @@ public sealed class RequestRepository : IRequestRepository
         if (membership is null)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to delete the request."));
+                ApiErrors.Forbidden("User is not allowed to delete the request."));
         }
         if (request.Status != RequestStatus.Open)
         {

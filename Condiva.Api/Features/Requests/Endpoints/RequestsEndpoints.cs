@@ -39,6 +39,11 @@ public static class RequestsEndpoints
             {
                 return ApiErrors.Required(nameof(communityId));
             }
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
 
             var result = await repository.GetAllAsync(communityId, user, dbContext);
             if (!result.IsSuccess)
@@ -46,7 +51,17 @@ public static class RequestsEndpoints
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Request, RequestListItemDto>(result.Data!)
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(dbContext, actorUserId, communityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = result.Data!
+                .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
+                {
+                    AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole.Value)
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -59,13 +74,31 @@ public static class RequestsEndpoints
             IMapper mapper,
             CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetByIdAsync(id, user, dbContext);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForRequest(result.Data!, actorUserId, actorRole.Value)
+            };
             return Results.Ok(payload);
         })
             .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
@@ -79,13 +112,44 @@ public static class RequestsEndpoints
             IMapper mapper,
             CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetOffersAsync(id, page, pageSize, user, dbContext);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Offer, OfferListItemDto>(result.Data!.Items).ToList();
+            var request = await dbContext.Requests.FirstOrDefaultAsync(foundRequest => foundRequest.Id == id);
+            if (request is null)
+            {
+                return ApiErrors.NotFound("Request");
+            }
+
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                request.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var isRequestOwner = string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
+            var mapped = result.Data!.Items
+                .Select(offer => mapper.Map<Offer, OfferListItemDto>(offer) with
+                {
+                    AllowedActions = AllowedActionsPolicy.ForOffer(
+                        offer,
+                        actorUserId,
+                        actorRole.Value,
+                        isRequestOwner)
+                })
+                .ToList();
             var payload = new PagedResponseDto<OfferListItemDto>(
                 mapped,
                 result.Data.Page,
@@ -105,13 +169,33 @@ public static class RequestsEndpoints
             IMapper mapper,
             CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetMineAsync(communityId, status, page, pageSize, user, dbContext);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Request, RequestListItemDto>(result.Data!.Items).ToList();
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var mapped = result.Data!.Items
+                .Select(request =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(request.CommunityId, out var actorRole))
+                    {
+                        return mapper.Map<Request, RequestListItemDto>(request);
+                    }
+
+                    return mapper.Map<Request, RequestListItemDto>(request) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole)
+                    };
+                })
+                .ToList();
             var payload = new PagedResponseDto<RequestListItemDto>(
                 mapped,
                 result.Data.Page,
@@ -244,12 +328,12 @@ public static class RequestsEndpoints
                 && foundMembership.Status == MembershipStatus.Active);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the request image.");
             }
 
             if (request.Status != RequestStatus.Open)
@@ -325,12 +409,12 @@ public static class RequestsEndpoints
                 cancellationToken);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the request image.");
             }
 
             if (request.Status != RequestStatus.Open)
@@ -423,12 +507,12 @@ public static class RequestsEndpoints
                 cancellationToken);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the request image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the request image.");
             }
 
             if (request.Status != RequestStatus.Open)

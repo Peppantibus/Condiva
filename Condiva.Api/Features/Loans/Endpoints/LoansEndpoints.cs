@@ -1,9 +1,11 @@
 ﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Features.Loans.Data;
 using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Loans.Models;
+using Condiva.Api.Features.Memberships.Models;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
@@ -28,8 +30,15 @@ public static class LoansEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetAllAsync(
                 communityId,
                 status,
@@ -43,7 +52,20 @@ public static class LoansEndpoints
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Loan, LoanListItemDto>(result.Data!.Items)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var mapped = result.Data!.Items
+                .Select(loan =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(loan.CommunityId, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+
+                    return mapper.Map<Loan, LoanListItemDto>(loan) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForLoan(loan, actorUserId, actorRole)
+                    };
+                })
                 .ToList();
             var usePaging = page.HasValue || pageSize.HasValue;
             if (!usePaging)
@@ -65,15 +87,34 @@ public static class LoansEndpoints
             string id,
             ClaimsPrincipal user,
             ILoanRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Loan, LoanDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForLoan(result.Data!, actorUserId, actorRole.Value)
+            };
             return Results.Ok(payload);
         })
             .Produces<LoanDetailsDto>(StatusCodes.Status200OK);

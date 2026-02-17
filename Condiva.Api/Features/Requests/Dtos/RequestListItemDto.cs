@@ -14,4 +14,5 @@ public sealed record RequestListItemDto(
     DateTime? NeededFrom,
     DateTime? NeededTo,
     CommunitySummaryDto Community,
-    UserSummaryDto Owner);
+    UserSummaryDto Owner,
+    string[]? AllowedActions = null);

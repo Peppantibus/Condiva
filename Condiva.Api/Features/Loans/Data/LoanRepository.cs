@@ -155,7 +155,7 @@ public sealed class LoanRepository : ILoanRepository
             && !string.Equals(body.BorrowerUserId, actorUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not allowed to create the loan."));
+                ApiErrors.Forbidden("User is not allowed to create the loan."));
         }
         if (body.Status != LoanStatus.Reserved)
         {
@@ -183,12 +183,12 @@ public sealed class LoanRepository : ILoanRepository
         if (actorMembership is null)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         if (!CanManageCommunity(actorMembership))
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not allowed to create the loan directly."));
+                ApiErrors.Forbidden("User is not allowed to create the loan directly."));
         }
         var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
@@ -314,7 +314,7 @@ public sealed class LoanRepository : ILoanRepository
         if (membership is null)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(loan.LenderUserId, actorUserId, StringComparison.Ordinal)
@@ -322,7 +322,7 @@ public sealed class LoanRepository : ILoanRepository
         if (!canManage)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not allowed to update the loan."));
+                ApiErrors.Forbidden("User is not allowed to update the loan."));
         }
         if (loan.Status != LoanStatus.Reserved)
         {
@@ -502,7 +502,7 @@ public sealed class LoanRepository : ILoanRepository
         if (membership is null)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(loan.LenderUserId, actorUserId, StringComparison.Ordinal)
@@ -510,7 +510,7 @@ public sealed class LoanRepository : ILoanRepository
         if (!canManage)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to delete the loan."));
+                ApiErrors.Forbidden("User is not allowed to delete the loan."));
         }
         if (loan.Status != LoanStatus.Reserved)
         {
@@ -549,7 +549,7 @@ public sealed class LoanRepository : ILoanRepository
         if (membership is null)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(loan.LenderUserId, actorUserId, StringComparison.Ordinal)
@@ -557,7 +557,7 @@ public sealed class LoanRepository : ILoanRepository
         if (!canManage)
         {
             return RepositoryResult<Loan>.Failure(
-                ApiErrors.Invalid("User is not allowed to start the loan."));
+                ApiErrors.Forbidden("User is not allowed to start the loan."));
         }
         if (loan.Status != LoanStatus.Reserved)
         {

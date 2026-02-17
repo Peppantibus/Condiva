@@ -13,8 +13,8 @@ Regola stato:
   - Scope: create/update su item, request, offer, loan, membership
   - Note: derivare sempre identity da token/sessione, no trust su `*UserId`
 
-- [ ] Authorization matrix + allowedActions
-  - Status: TODO
+- [x] Authorization matrix + allowedActions
+  - Status: DONE
   - Scope: communities, members, requests, offers, items, loans
   - Note: enforcement server-side + `allowedActions` coerenti in list/detail
 
@@ -87,3 +87,4 @@ Regola stato:
 
 - Inizio tracciamento: 2026-02-17
 - 2026-02-17: completato `Server-authoritative identity on write operations` (hardening write path + test anti-impersonificazione).
+- 2026-02-17: completato `Authorization matrix + allowedActions` (allowedActions su list/detail + 403 su permessi mutativi mancanti).

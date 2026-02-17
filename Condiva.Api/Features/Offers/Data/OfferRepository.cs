@@ -162,7 +162,7 @@ public sealed class OfferRepository : IOfferRepository
         if (!isMember)
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("OffererUserId is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var item = await _dbContext.Items.FindAsync(body.ItemId);
         if (item is null)
@@ -246,14 +246,14 @@ public sealed class OfferRepository : IOfferRepository
         if (membership is null)
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not allowed to update the offer."));
+                ApiErrors.Forbidden("User is not allowed to update the offer."));
         }
         if (offer.Status != OfferStatus.Open)
         {
@@ -369,14 +369,14 @@ public sealed class OfferRepository : IOfferRepository
         if (membership is null)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to delete the offer."));
+                ApiErrors.Forbidden("User is not allowed to delete the offer."));
         }
         if (offer.Status != OfferStatus.Open)
         {
@@ -536,7 +536,7 @@ public sealed class OfferRepository : IOfferRepository
         if (membership is null)
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         if (offer.Status != OfferStatus.Open)
         {
@@ -599,7 +599,7 @@ public sealed class OfferRepository : IOfferRepository
         if (membership is null)
         {
             return RepositoryResult<Offer>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         if (!string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal))
         {

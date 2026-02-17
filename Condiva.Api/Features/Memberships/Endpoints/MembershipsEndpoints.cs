@@ -1,4 +1,5 @@
 ﻿using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
@@ -23,15 +24,38 @@ public static class MembershipsEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Membership, MembershipListItemDto>(result.Data!)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var payload = result.Data!
+                .Select(membership =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(membership.CommunityId, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+
+                    return mapper.Map<Membership, MembershipListItemDto>(membership) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForMembership(
+                            membership,
+                            actorUserId,
+                            actorRole)
+                    };
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -40,15 +64,38 @@ public static class MembershipsEndpoints
         group.MapGet("/me", async (
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetMineAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Membership, MembershipListItemDto>(result.Data!)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var payload = result.Data!
+                .Select(membership =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(membership.CommunityId, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+
+                    return mapper.Map<Membership, MembershipListItemDto>(membership) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForMembership(
+                            membership,
+                            actorUserId,
+                            actorRole)
+                    };
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -57,15 +104,35 @@ public static class MembershipsEndpoints
         group.MapGet("/me/communities", async (
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetMyCommunitiesAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var payload = result.Data!
+                .Select(community =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(community.Id, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+
+                    return mapper.Map<Community, CommunityListItemDto>(community) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForCommunity(actorRole)
+                    };
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -75,15 +142,37 @@ public static class MembershipsEndpoints
             string id,
             ClaimsPrincipal user,
             IMembershipRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Membership, MembershipDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForMembership(
+                    result.Data!,
+                    actorUserId,
+                    actorRole.Value)
+            };
             return Results.Ok(payload);
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status200OK);

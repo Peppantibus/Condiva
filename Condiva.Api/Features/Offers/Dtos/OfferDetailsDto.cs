@@ -12,4 +12,5 @@ public sealed record OfferDetailsDto(
     string Status,
     DateTime CreatedAt,
     CommunitySummaryDto Community,
-    UserSummaryDto Offerer);
+    UserSummaryDto Offerer,
+    string[]? AllowedActions = null);

@@ -105,7 +105,7 @@ public sealed class ItemRepository : IItemRepository
         if (!isMember)
         {
             return RepositoryResult<Item>.Failure(
-                ApiErrors.Invalid("OwnerUserId is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         if (string.IsNullOrWhiteSpace(body.Id))
         {
@@ -145,14 +145,14 @@ public sealed class ItemRepository : IItemRepository
         if (membership is null)
         {
             return RepositoryResult<Item>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(item.OwnerUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<Item>.Failure(
-                ApiErrors.Invalid("User is not allowed to update the item."));
+                ApiErrors.Forbidden("User is not allowed to update the item."));
         }
         if (item.Status is ItemStatus.Reserved or ItemStatus.InLoan)
         {
@@ -232,14 +232,14 @@ public sealed class ItemRepository : IItemRepository
         if (membership is null)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not a member of the community."));
+                ApiErrors.Forbidden("User is not a member of the community."));
         }
         var canManage = CanManageCommunity(membership)
             || string.Equals(item.OwnerUserId, actorUserId, StringComparison.Ordinal);
         if (!canManage)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to delete the item."));
+                ApiErrors.Forbidden("User is not allowed to delete the item."));
         }
         if (item.Status is ItemStatus.Reserved or ItemStatus.InLoan)
         {

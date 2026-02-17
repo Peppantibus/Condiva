@@ -181,7 +181,7 @@ public sealed class MembershipRepository : IMembershipRepository
         if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<Membership>.Failure(
-                ApiErrors.Invalid("User is not allowed to update membership."));
+                ApiErrors.Forbidden("User is not allowed to update membership."));
         }
         if (string.IsNullOrWhiteSpace(body.UserId))
         {
@@ -265,7 +265,7 @@ public sealed class MembershipRepository : IMembershipRepository
         if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<Membership>.Failure(
-                ApiErrors.Invalid("User is not allowed to change roles."));
+                ApiErrors.Forbidden("User is not allowed to change roles."));
         }
         if (membership.UserId == actorUserId)
         {
@@ -313,7 +313,7 @@ public sealed class MembershipRepository : IMembershipRepository
         if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to remove members."));
+                ApiErrors.Forbidden("User is not allowed to remove members."));
         }
         if (membership.Role == MembershipRole.Owner)
         {

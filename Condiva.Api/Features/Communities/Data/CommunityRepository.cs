@@ -82,7 +82,7 @@ public sealed class CommunityRepository : ICommunityRepository
         if (membership is null || !CanManageInvites(membership))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(
-                ApiErrors.Invalid("User is not allowed to manage invites."));
+                ApiErrors.Forbidden("User is not allowed to manage invites."));
         }
 
         return RepositoryResult<InviteCodeInfo>.Success(
@@ -113,7 +113,7 @@ public sealed class CommunityRepository : ICommunityRepository
         if (membership is null || membership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<InviteCodeInfo>.Failure(
-                ApiErrors.Invalid("User is not allowed to rotate invites."));
+                ApiErrors.Forbidden("User is not allowed to rotate invites."));
         }
 
         community.EnterCode = CreateEnterCode();
@@ -410,7 +410,7 @@ public sealed class CommunityRepository : ICommunityRepository
         if (membership is null || membership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<Community>.Failure(
-                ApiErrors.Invalid("User is not allowed to update the community."));
+                ApiErrors.Forbidden("User is not allowed to update the community."));
         }
         if (string.IsNullOrWhiteSpace(body.Name))
         {
@@ -449,7 +449,7 @@ public sealed class CommunityRepository : ICommunityRepository
         if (membership is null || membership.Role != MembershipRole.Owner)
         {
             return RepositoryResult<bool>.Failure(
-                ApiErrors.Invalid("User is not allowed to delete the community."));
+                ApiErrors.Forbidden("User is not allowed to delete the community."));
         }
 
         // TODO: Ensure cascading delete or explicit cleanup for related entities.

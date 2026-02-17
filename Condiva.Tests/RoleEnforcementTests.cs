@@ -36,7 +36,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
-    public async Task PutCommunity_AsNonOwner_ReturnsBadRequest()
+    public async Task PutCommunity_AsNonOwner_ReturnsForbidden()
     {
         var ownerId = "owner-user";
         var memberId = "member-user";
@@ -51,7 +51,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             CreatedByUserId = ownerId
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
-    public async Task UpdateMembershipRole_AsNonOwner_ReturnsBadRequest()
+    public async Task UpdateMembershipRole_AsNonOwner_ReturnsForbidden()
     {
         var ownerId = "owner-role-user-2";
         var memberId = "member-role-user-2";
@@ -85,7 +85,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Role = "Moderator"
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
-    public async Task UpdateItem_AsNonOwner_ReturnsBadRequest()
+    public async Task UpdateItem_AsNonOwner_ReturnsForbidden()
     {
         var ownerId = "item-owner-user";
         var memberId = "item-member-user";
@@ -120,11 +120,11 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Status = "Available"
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
-    public async Task UpdateRequest_AsNonRequester_ReturnsBadRequest()
+    public async Task UpdateRequest_AsNonRequester_ReturnsForbidden()
     {
         var requesterId = "requester-user";
         var memberId = "requester-member-user";
@@ -142,7 +142,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Status = "Open"
         });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]
@@ -548,7 +548,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
-    public async Task StartLoan_AsUnrelatedMember_ReturnsBadRequest()
+    public async Task StartLoan_AsUnrelatedMember_ReturnsForbidden()
     {
         var lenderId = "loan-lender-user";
         var borrowerId = "loan-borrower-user";
@@ -562,7 +562,7 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         using var client = CreateClientWithToken(memberId);
         var response = await client.PostAsync($"/api/loans/{loanId}/start", null);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

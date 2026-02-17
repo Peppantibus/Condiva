@@ -68,6 +68,9 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(ownerId, item.Owner.Id);
         Assert.False(string.IsNullOrWhiteSpace(item.Owner.DisplayName));
         Assert.False(string.IsNullOrWhiteSpace(item.Owner.UserName));
+        Assert.NotNull(item.AllowedActions);
+        Assert.Contains("view", item.AllowedActions!);
+        Assert.Contains("update", item.AllowedActions!);
     }
 
     [Fact]
@@ -107,6 +110,9 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(communityId, request.Community.Id);
         Assert.False(string.IsNullOrWhiteSpace(request.Community.Name));
         Assert.False(string.IsNullOrWhiteSpace(request.Community.Slug));
+        Assert.NotNull(request.AllowedActions);
+        Assert.Contains("view", request.AllowedActions!);
+        Assert.Contains("update", request.AllowedActions!);
     }
 
     [Fact]
@@ -134,6 +140,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             Assert.False(string.IsNullOrWhiteSpace(item.Community.Id));
             Assert.False(string.IsNullOrWhiteSpace(item.Community.Name));
             Assert.False(string.IsNullOrWhiteSpace(item.Community.Slug));
+            Assert.NotNull(item.AllowedActions);
+            Assert.Contains("view", item.AllowedActions!);
         });
     }
 
@@ -162,6 +170,9 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.NotNull(offer.Offerer);
         Assert.False(string.IsNullOrWhiteSpace(offer.Offerer.DisplayName));
         Assert.False(string.IsNullOrWhiteSpace(offer.Offerer.UserName));
+        Assert.NotNull(offer.AllowedActions);
+        Assert.Contains("view", offer.AllowedActions!);
+        Assert.Contains("withdraw", offer.AllowedActions!);
     }
 
     [Fact]
@@ -188,6 +199,10 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(communityId, offer.Community.Id);
         Assert.False(string.IsNullOrWhiteSpace(offer.Community.Name));
         Assert.False(string.IsNullOrWhiteSpace(offer.Community.Slug));
+        Assert.NotNull(offer.AllowedActions);
+        Assert.Contains("view", offer.AllowedActions!);
+        Assert.Contains("accept", offer.AllowedActions!);
+        Assert.Contains("reject", offer.AllowedActions!);
     }
 
     private HttpClient CreateClientWithToken(string userId)

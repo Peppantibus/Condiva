@@ -18,4 +18,5 @@ public sealed record LoanDetailsDto(
     DateTime? ReturnConfirmedAt,
     UserSummaryDto Lender,
     UserSummaryDto Borrower,
-    ItemSummaryDto Item);
+    ItemSummaryDto Item,
+    string[]? AllowedActions = null);

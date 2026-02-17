@@ -7,4 +7,5 @@ public sealed record CommunityListItemDto(
     string? Description,
     string? ImageKey,
     string CreatedByUserId,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string[]? AllowedActions = null);

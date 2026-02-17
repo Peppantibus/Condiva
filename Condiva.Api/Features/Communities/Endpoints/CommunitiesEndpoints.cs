@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Communities.Data;
 using Condiva.Api.Features.Communities.Dtos;
@@ -36,15 +37,35 @@ public static class CommunitiesEndpoints
         group.MapGet("/", async (
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetAllAsync(user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Community, CommunityListItemDto>(result.Data!)
+            var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
+            var payload = result.Data!
+                .Select(community =>
+                {
+                    if (!actorRolesByCommunity.TryGetValue(community.Id, out var actorRole))
+                    {
+                        actorRole = MembershipRole.Member;
+                    }
+
+                    return mapper.Map<Community, CommunityListItemDto>(community) with
+                    {
+                        AllowedActions = AllowedActionsPolicy.ForCommunity(actorRole)
+                    };
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -54,8 +75,15 @@ public static class CommunitiesEndpoints
             string id,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
             if (idError is not null)
@@ -69,7 +97,19 @@ public static class CommunitiesEndpoints
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                normalizedId!);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Community, CommunityDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForCommunity(actorRole.Value)
+            };
             return Results.Ok(payload);
         })
             .Produces<CommunityDetailsDto>(StatusCodes.Status200OK);
@@ -153,8 +193,15 @@ public static class CommunitiesEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
             if (idError is not null)
@@ -184,7 +231,18 @@ public static class CommunitiesEndpoints
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Request, RequestListItemDto>(result.Data!.Items).ToList();
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(dbContext, actorUserId, normalizedId!);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var mapped = result.Data!.Items
+                .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
+                {
+                    AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole.Value)
+                })
+                .ToList();
             var payload = new PagedResponseDto<RequestListItemDto>(
                 mapped,
                 result.Data.Page,
@@ -201,8 +259,15 @@ public static class CommunitiesEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             ICommunityRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var normalizedId = Normalize(id);
             var idError = ValidateId(normalizedId);
             if (idError is not null)
@@ -231,7 +296,18 @@ public static class CommunitiesEndpoints
                 return result.Error!;
             }
 
-            var mapped = mapper.MapList<Item, ItemListItemDto>(result.Data!.Items).ToList();
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(dbContext, actorUserId, normalizedId!);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var mapped = result.Data!.Items
+                .Select(item => mapper.Map<Item, ItemListItemDto>(item) with
+                {
+                    AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorRole.Value)
+                })
+                .ToList();
             var payload = new PagedResponseDto<ItemListItemDto>(
                 mapped,
                 result.Data.Page,
@@ -366,7 +442,7 @@ public static class CommunitiesEndpoints
                 && membership.Role == MembershipRole.Owner);
             if (!canManage)
             {
-                return ApiErrors.Invalid("User is not allowed to manage the community image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the community image.");
             }
 
             if (string.IsNullOrWhiteSpace(body.FileName))
@@ -439,7 +515,7 @@ public static class CommunitiesEndpoints
                 cancellationToken);
             if (membership is null || membership.Role != MembershipRole.Owner)
             {
-                return ApiErrors.Invalid("User is not allowed to manage the community image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the community image.");
             }
 
             var community = await dbContext.Communities.FirstOrDefaultAsync(
@@ -545,7 +621,7 @@ public static class CommunitiesEndpoints
                 cancellationToken);
             if (membership is null || membership.Role != MembershipRole.Owner)
             {
-                return ApiErrors.Invalid("User is not allowed to manage the community image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the community image.");
             }
 
             var community = await dbContext.Communities.FirstOrDefaultAsync(

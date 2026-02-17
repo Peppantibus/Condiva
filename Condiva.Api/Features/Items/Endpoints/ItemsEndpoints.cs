@@ -29,11 +29,17 @@ public static class ItemsEndpoints
             string? communityId,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
             if (string.IsNullOrWhiteSpace(communityId))
             {
                 return ApiErrors.Required(nameof(communityId));
+            }
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
             }
 
             var result = await repository.GetAllAsync(communityId, user);
@@ -42,7 +48,17 @@ public static class ItemsEndpoints
                 return result.Error!;
             }
 
-            var payload = mapper.MapList<Item, ItemListItemDto>(result.Data!)
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(dbContext, actorUserId, communityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = result.Data!
+                .Select(item => mapper.Map<Item, ItemListItemDto>(item) with
+                {
+                    AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorRole.Value)
+                })
                 .ToList();
             return Results.Ok(payload);
         })
@@ -52,15 +68,34 @@ public static class ItemsEndpoints
             string id,
             ClaimsPrincipal user,
             IItemRepository repository,
-            IMapper mapper) =>
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
         {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
             var result = await repository.GetByIdAsync(id, user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
             }
 
-            var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!);
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Item, ItemDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForItem(result.Data!, actorUserId, actorRole.Value)
+            };
             return Results.Ok(payload);
         })
             .Produces<ItemDetailsDto>(StatusCodes.Status200OK);
@@ -183,12 +218,12 @@ public static class ItemsEndpoints
                 && foundMembership.Status == MembershipStatus.Active);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageItem(membership, item.OwnerUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the item image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the item image.");
             }
 
             if (string.IsNullOrWhiteSpace(body.FileName))
@@ -259,12 +294,12 @@ public static class ItemsEndpoints
                 cancellationToken);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageItem(membership, item.OwnerUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the item image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the item image.");
             }
 
             var previousObjectKey = item.ImageKey;
@@ -352,12 +387,12 @@ public static class ItemsEndpoints
                 cancellationToken);
             if (membership is null)
             {
-                return ApiErrors.Invalid("User is not a member of the community.");
+                return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
             if (!CanManageItem(membership, item.OwnerUserId, actorUserId))
             {
-                return ApiErrors.Invalid("User is not allowed to manage the item image.");
+                return ApiErrors.Forbidden("User is not allowed to manage the item image.");
             }
 
             var previousObjectKey = item.ImageKey;
