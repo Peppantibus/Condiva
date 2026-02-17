@@ -1126,6 +1126,29 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetItems_WithOwnerStatusSearchAndPaging_ReturnsFilteredPage()
+    {
+        var ownerId = "items-filter-owner";
+        var actorUserId = "items-filter-actor";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, actorUserId);
+
+        var actorAvailableItemId = await SeedItemAsync(communityId, actorUserId, ItemStatus.Available);
+        await SeedItemAsync(communityId, actorUserId, ItemStatus.Reserved);
+        await SeedItemAsync(communityId, ownerId, ItemStatus.Available);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.GetAsync(
+            $"/api/items?communityId={communityId}&owner=me&status=Available&category=Tools&search=test&sort=name_asc&page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<ItemListItemDto>>();
+        Assert.NotNull(payload);
+        Assert.Equal(1, payload!.Total);
+        Assert.Single(payload.Items);
+        Assert.Equal(actorAvailableItemId, payload.Items[0].Id);
+    }
+
+    [Fact]
     public async Task GetItem_AsNonMember_ReturnsBadRequest()
     {
         var ownerId = "item-read-owner";
@@ -1200,6 +1223,45 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
 
         using var client = CreateClientWithToken(nonMemberId);
         var response = await client.GetAsync($"/api/loans/{loanId}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetLoans_WithLentPerspective_ReturnsOnlyLoansAsLender()
+    {
+        var actorUserId = "loans-perspective-actor";
+        var borrowerId = "loans-perspective-borrower";
+        var otherLenderId = "loans-perspective-other-lender";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, borrowerId);
+        await AddMemberAsync(communityId, otherLenderId, MembershipRole.Member);
+
+        var itemLentId = await SeedItemAsync(communityId, actorUserId);
+        var itemBorrowedId = await SeedItemAsync(communityId, otherLenderId);
+        var lentLoanId = await SeedLoanAsync(communityId, itemLentId, actorUserId, borrowerId, null);
+        var borrowedLoanId = await SeedLoanAsync(communityId, itemBorrowedId, otherLenderId, actorUserId, null);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.GetAsync(
+            $"/api/loans?communityId={communityId}&perspective=lent&page=1&pageSize=10");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<LoanListItemDto>>();
+        Assert.NotNull(payload);
+        Assert.Contains(payload!.Items, loan => loan.Id == lentLoanId);
+        Assert.DoesNotContain(payload.Items, loan => loan.Id == borrowedLoanId);
+    }
+
+    [Fact]
+    public async Task GetLoans_WithInvalidPerspective_ReturnsBadRequest()
+    {
+        var actorUserId = "loans-perspective-invalid-actor";
+        var borrowerId = "loans-perspective-invalid-borrower";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, borrowerId);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.GetAsync(
+            $"/api/loans?communityId={communityId}&perspective=invalid&page=1&pageSize=10");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }

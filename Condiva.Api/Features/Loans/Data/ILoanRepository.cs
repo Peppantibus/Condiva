@@ -9,6 +9,7 @@ public interface ILoanRepository
     Task<RepositoryResult<PagedResult<Loan>>> GetAllAsync(
         string? communityId,
         string? status,
+        string? perspective,
         DateTime? from,
         DateTime? to,
         int? page,

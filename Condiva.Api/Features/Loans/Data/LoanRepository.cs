@@ -24,6 +24,7 @@ public sealed class LoanRepository : ILoanRepository
     public async Task<RepositoryResult<PagedResult<Loan>>> GetAllAsync(
         string? communityId,
         string? status,
+        string? perspective,
         DateTime? from,
         DateTime? to,
         int? page,
@@ -53,6 +54,15 @@ public sealed class LoanRepository : ILoanRepository
             statusFilter = parsedStatus;
         }
 
+        var normalizedPerspective = string.IsNullOrWhiteSpace(perspective) ? null : perspective.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedPerspective)
+            && !string.Equals(normalizedPerspective, "lent", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(normalizedPerspective, "borrowed", StringComparison.OrdinalIgnoreCase))
+        {
+            return RepositoryResult<PagedResult<Loan>>.Failure(
+                ApiErrors.Invalid("Invalid perspective filter."));
+        }
+
         var query = _dbContext.Loans
             .Include(loan => loan.LenderUser)
             .Include(loan => loan.BorrowerUser)
@@ -70,6 +80,14 @@ public sealed class LoanRepository : ILoanRepository
         if (statusFilter.HasValue)
         {
             query = query.Where(loan => loan.Status == statusFilter.Value);
+        }
+        if (string.Equals(normalizedPerspective, "lent", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(loan => loan.LenderUserId == actorUserId);
+        }
+        if (string.Equals(normalizedPerspective, "borrowed", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(loan => loan.BorrowerUserId == actorUserId);
         }
         if (from.HasValue)
         {

@@ -18,29 +18,131 @@ public sealed class ItemRepository : IItemRepository
         _dbContext = dbContext;
     }
 
-    public async Task<RepositoryResult<IReadOnlyList<Item>>> GetAllAsync(
+    public async Task<RepositoryResult<PagedResult<Item>>> GetAllAsync(
         string communityId,
+        string? owner,
+        string? status,
+        string? category,
+        string? search,
+        string? sort,
+        int? page,
+        int? pageSize,
         ClaimsPrincipal user)
     {
         var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
-            return RepositoryResult<IReadOnlyList<Item>>.Failure(ApiErrors.Unauthorized());
+            return RepositoryResult<PagedResult<Item>>.Failure(ApiErrors.Unauthorized());
         }
         if (string.IsNullOrWhiteSpace(communityId))
         {
-            return RepositoryResult<IReadOnlyList<Item>>.Failure(ApiErrors.Required(nameof(communityId)));
+            return RepositoryResult<PagedResult<Item>>.Failure(ApiErrors.Required(nameof(communityId)));
         }
 
-        var items = await _dbContext.Items
+        var isMember = await _dbContext.Memberships.AnyAsync(membership =>
+            membership.UserId == actorUserId
+            && membership.Status == MembershipStatus.Active
+            && membership.CommunityId == communityId);
+        if (!isMember)
+        {
+            return RepositoryResult<PagedResult<Item>>.Failure(
+                ApiErrors.Forbidden("User is not a member of the community."));
+        }
+
+        ItemStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<ItemStatus>(status, true, out var parsedStatus))
+            {
+                return RepositoryResult<PagedResult<Item>>.Failure(
+                    ApiErrors.Invalid("Invalid status filter."));
+            }
+
+            statusFilter = parsedStatus;
+        }
+
+        var query = _dbContext.Items
             .Include(item => item.OwnerUser)
             .Where(item => item.CommunityId == communityId)
-            .Where(item => _dbContext.Memberships.Any(membership =>
-                membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active
-                && membership.CommunityId == communityId))
-            .ToListAsync();
-        return RepositoryResult<IReadOnlyList<Item>>.Success(items);
+            .AsQueryable();
+
+        var normalizedOwner = Normalize(owner);
+        if (!string.IsNullOrWhiteSpace(normalizedOwner))
+        {
+            if (string.Equals(normalizedOwner, "me", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(item => item.OwnerUserId == actorUserId);
+            }
+            else
+            {
+                query = query.Where(item => item.OwnerUserId == normalizedOwner);
+            }
+        }
+
+        if (statusFilter.HasValue)
+        {
+            query = query.Where(item => item.Status == statusFilter.Value);
+        }
+
+        var normalizedCategory = Normalize(category);
+        if (!string.IsNullOrWhiteSpace(normalizedCategory))
+        {
+            query = query.Where(item => item.Category == normalizedCategory);
+        }
+
+        var normalizedSearch = Normalize(search);
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            query = query.Where(item =>
+                item.Name.Contains(normalizedSearch)
+                || (item.Description ?? string.Empty).Contains(normalizedSearch)
+                || (item.Category ?? string.Empty).Contains(normalizedSearch));
+        }
+
+        var normalizedSort = string.IsNullOrWhiteSpace(sort) ? "createdAt_desc" : sort.Trim();
+        switch (normalizedSort.ToLowerInvariant())
+        {
+            case "createdat_asc":
+                query = query.OrderBy(item => item.CreatedAt);
+                break;
+            case "createdat_desc":
+                query = query.OrderByDescending(item => item.CreatedAt);
+                break;
+            case "name_asc":
+                query = query.OrderBy(item => item.Name);
+                break;
+            case "name_desc":
+                query = query.OrderByDescending(item => item.Name);
+                break;
+            default:
+                return RepositoryResult<PagedResult<Item>>.Failure(
+                    ApiErrors.Invalid("Invalid sort parameter."));
+        }
+
+        var usePaging = page.HasValue || pageSize.HasValue;
+        if (usePaging)
+        {
+            var pageNumber = page.GetValueOrDefault(1);
+            var size = pageSize.GetValueOrDefault(20);
+            if (pageNumber <= 0 || size <= 0 || size > 100)
+            {
+                return RepositoryResult<PagedResult<Item>>.Failure(
+                    ApiErrors.Invalid("Invalid pagination parameters."));
+            }
+
+            var total = await query.CountAsync();
+            var items = await query
+                .Skip((pageNumber - 1) * size)
+                .Take(size)
+                .ToListAsync();
+
+            return RepositoryResult<PagedResult<Item>>.Success(
+                new PagedResult<Item>(items, pageNumber, size, total));
+        }
+
+        var allItems = await query.ToListAsync();
+        return RepositoryResult<PagedResult<Item>>.Success(
+            new PagedResult<Item>(allItems, 1, allItems.Count, allItems.Count));
     }
 
     public async Task<RepositoryResult<Item>> GetByIdAsync(
@@ -274,5 +376,10 @@ public sealed class ItemRepository : IItemRepository
     {
         return membership.Role == MembershipRole.Owner
             || membership.Role == MembershipRole.Moderator;
+    }
+
+    private static string? Normalize(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }

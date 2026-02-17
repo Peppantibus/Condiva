@@ -27,6 +27,13 @@ public static class ItemsEndpoints
 
         group.MapGet("/", async (
             string? communityId,
+            string? owner,
+            string? status,
+            string? category,
+            string? search,
+            string? sort,
+            int? page,
+            int? pageSize,
             ClaimsPrincipal user,
             IItemRepository repository,
             IMapper mapper,
@@ -42,7 +49,16 @@ public static class ItemsEndpoints
                 return ApiErrors.Unauthorized();
             }
 
-            var result = await repository.GetAllAsync(communityId, user);
+            var result = await repository.GetAllAsync(
+                communityId,
+                owner,
+                status,
+                category,
+                search,
+                sort,
+                page,
+                pageSize,
+                user);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -54,15 +70,28 @@ public static class ItemsEndpoints
                 return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
-            var payload = result.Data!
+            var mapped = result.Data!.Items
                 .Select(item => mapper.Map<Item, ItemListItemDto>(item) with
                 {
                     AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorRole.Value)
                 })
                 .ToList();
+
+            var usePaging = page.HasValue || pageSize.HasValue;
+            if (!usePaging)
+            {
+                return Results.Ok(mapped);
+            }
+
+            var payload = new PagedResponseDto<ItemListItemDto>(
+                mapped,
+                result.Data.Page,
+                result.Data.PageSize,
+                result.Data.Total);
             return Results.Ok(payload);
         })
-            .Produces<List<ItemListItemDto>>(StatusCodes.Status200OK);
+            .Produces<List<ItemListItemDto>>(StatusCodes.Status200OK)
+            .Produces<PagedResponseDto<ItemListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

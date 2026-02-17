@@ -24,6 +24,7 @@ public static class LoansEndpoints
         group.MapGet("/", async (
             string? communityId,
             string? status,
+            string? perspective,
             DateTime? from,
             DateTime? to,
             int? page,
@@ -42,6 +43,7 @@ public static class LoansEndpoints
             var result = await repository.GetAllAsync(
                 communityId,
                 status,
+                perspective,
                 from,
                 to,
                 page,

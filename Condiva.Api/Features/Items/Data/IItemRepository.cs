@@ -6,8 +6,15 @@ namespace Condiva.Api.Features.Items.Data;
 
 public interface IItemRepository
 {
-    Task<RepositoryResult<IReadOnlyList<Item>>> GetAllAsync(
+    Task<RepositoryResult<PagedResult<Item>>> GetAllAsync(
         string communityId,
+        string? owner,
+        string? status,
+        string? category,
+        string? search,
+        string? sort,
+        int? page,
+        int? pageSize,
         ClaimsPrincipal user);
     Task<RepositoryResult<Item>> GetByIdAsync(
         string id,
