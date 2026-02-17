@@ -10,6 +10,9 @@ using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Items.Dtos;
+using Condiva.Api.Features.Loans.Dtos;
+using Condiva.Api.Features.Offers.Dtos;
+using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
 using Condiva.Tests.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -134,6 +137,98 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Id = requestId,
             CommunityId = communityId,
             RequesterUserId = requesterId,
+            Title = "Updated request",
+            Description = "Updated",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateItem_IgnoresOwnerUserIdFromBody()
+    {
+        var actorUserId = "item-create-actor";
+        var spoofedUserId = "item-create-spoofed";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, spoofedUserId);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.PostAsJsonAsync("/api/items", new
+        {
+            CommunityId = communityId,
+            OwnerUserId = spoofedUserId,
+            Name = "Actor item",
+            Description = "Desc",
+            Category = "Tools",
+            Status = "Available"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<ItemDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(actorUserId, payload!.OwnerUserId);
+    }
+
+    [Fact]
+    public async Task CreateRequest_IgnoresRequesterUserIdFromBody()
+    {
+        var actorUserId = "request-create-actor";
+        var spoofedUserId = "request-create-spoofed";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, spoofedUserId);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.PostAsJsonAsync("/api/requests", new
+        {
+            CommunityId = communityId,
+            RequesterUserId = spoofedUserId,
+            Title = "Need drill",
+            Description = "Desc",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<RequestDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(actorUserId, payload!.RequesterUserId);
+    }
+
+    [Fact]
+    public async Task UpdateItem_CannotChangeOwnerUserId()
+    {
+        var ownerId = "item-owner-update-block";
+        var otherMemberId = "item-owner-update-block-other";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, otherMemberId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.PutAsJsonAsync($"/api/items/{itemId}", new
+        {
+            Id = itemId,
+            CommunityId = communityId,
+            OwnerUserId = otherMemberId,
+            Name = "Updated item",
+            Description = "Updated",
+            Category = "Tools",
+            Status = "Available"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateRequest_CannotChangeRequesterUserId()
+    {
+        var requesterId = "request-owner-update-block";
+        var otherMemberId = "request-owner-update-block-other";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, otherMemberId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PutAsJsonAsync($"/api/requests/{requestId}", new
+        {
+            Id = requestId,
+            CommunityId = communityId,
+            RequesterUserId = otherMemberId,
             Title = "Updated request",
             Description = "Updated",
             Status = "Open"
@@ -275,6 +370,30 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task AcceptOffer_IgnoresBorrowerUserIdFromBody()
+    {
+        var requesterId = "accept-requester-user-ignore";
+        var lenderId = "accept-lender-user-ignore";
+        var spoofedBorrowerId = "accept-spoofed-borrower-ignore";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        await AddMemberAsync(communityId, spoofedBorrowerId, MembershipRole.Member);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsJsonAsync($"/api/offers/{offerId}/accept", new
+        {
+            BorrowerUserId = spoofedBorrowerId
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<LoanDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(requesterId, payload!.BorrowerUserId);
+    }
+
+    [Fact]
     public async Task AcceptOffer_AsNonRequester_ReturnsForbidden()
     {
         var requesterId = "accept-requester-user-2";
@@ -333,6 +452,31 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task CreateOffer_IgnoresOffererUserIdFromBody()
+    {
+        var actorUserId = "offer-create-actor";
+        var spoofedUserId = "offer-create-spoofed";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId, spoofedUserId);
+        var itemId = await SeedItemAsync(communityId, actorUserId);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.PostAsJsonAsync("/api/offers", new
+        {
+            CommunityId = communityId,
+            OffererUserId = spoofedUserId,
+            RequestId = (string?)null,
+            ItemId = itemId,
+            Message = "Offer",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<OfferDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(actorUserId, payload!.OffererUserId);
+    }
+
+    [Fact]
     public async Task CreateOffer_ItemOwnerMismatch_ReturnsBadRequest()
     {
         var ownerId = "offer-mismatch-owner";
@@ -372,6 +516,30 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             OffererUserId = offererId,
             RequestId = (string?)null,
             ItemId = otherItemId,
+            Message = "Updated",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateOffer_CannotChangeOffererUserId()
+    {
+        var offererId = "offer-update-block-offerer";
+        var otherMemberId = "offer-update-block-other";
+        var communityId = await SeedCommunityWithMembersAsync(offererId, otherMemberId);
+        var itemId = await SeedItemAsync(communityId, offererId);
+        var offerId = await SeedOfferAsync(communityId, offererId, itemId, null);
+
+        using var client = CreateClientWithToken(offererId);
+        var response = await client.PutAsJsonAsync($"/api/offers/{offerId}", new
+        {
+            Id = offerId,
+            CommunityId = communityId,
+            OffererUserId = otherMemberId,
+            RequestId = (string?)null,
+            ItemId = itemId,
             Message = "Updated",
             Status = "Open"
         });

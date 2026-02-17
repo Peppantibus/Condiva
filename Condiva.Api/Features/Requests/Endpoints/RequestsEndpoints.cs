@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Dtos;
@@ -135,11 +136,16 @@ public static class RequestsEndpoints
             {
                 return ApiErrors.Invalid("Invalid status.");
             }
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
 
             var model = new Request
             {
                 CommunityId = body.CommunityId,
-                RequesterUserId = body.RequesterUserId,
+                RequesterUserId = actorUserId,
                 Title = body.Title,
                 Description = body.Description,
                 Status = statusValue,

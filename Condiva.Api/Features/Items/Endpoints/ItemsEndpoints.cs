@@ -1,4 +1,5 @@
 ﻿using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Items.Data;
 using Condiva.Api.Features.Items.Dtos;
@@ -78,11 +79,16 @@ public static class ItemsEndpoints
             {
                 return ApiErrors.Invalid("Invalid status.");
             }
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
 
             var model = new Item
             {
                 CommunityId = body.CommunityId,
-                OwnerUserId = body.OwnerUserId,
+                OwnerUserId = actorUserId,
                 Name = body.Name,
                 Description = body.Description,
                 Category = body.Category,

@@ -264,15 +264,12 @@ public sealed class OfferRepository : IOfferRepository
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Required(nameof(body.CommunityId)));
         }
-        if (string.IsNullOrWhiteSpace(body.OffererUserId))
-        {
-            return RepositoryResult<Offer>.Failure(ApiErrors.Required(nameof(body.OffererUserId)));
-        }
-        if (!CanManageCommunity(membership)
+        if (!string.IsNullOrWhiteSpace(body.OffererUserId)
             && !string.Equals(body.OffererUserId, offer.OffererUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Invalid("OffererUserId cannot be changed."));
         }
+        body.OffererUserId = offer.OffererUserId;
         if (string.IsNullOrWhiteSpace(body.ItemId))
         {
             return RepositoryResult<Offer>.Failure(ApiErrors.Required(nameof(body.ItemId)));
@@ -444,12 +441,6 @@ public sealed class OfferRepository : IOfferRepository
         {
             return RepositoryResult<Loan>.Failure(
                 ApiErrors.Forbidden("User is not allowed to accept the offer."));
-        }
-        if (!string.IsNullOrWhiteSpace(body.BorrowerUserId)
-            && !string.Equals(body.BorrowerUserId, request.RequesterUserId, StringComparison.Ordinal))
-        {
-            return RepositoryResult<Loan>.Failure(
-                ApiErrors.Conflict("BorrowerUserId must match the requester."));
         }
 
         var borrowerUserId = request.RequesterUserId;

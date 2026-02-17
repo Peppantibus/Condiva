@@ -163,15 +163,12 @@ public sealed class ItemRepository : IItemRepository
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Required(nameof(body.CommunityId)));
         }
-        if (string.IsNullOrWhiteSpace(body.OwnerUserId))
-        {
-            return RepositoryResult<Item>.Failure(ApiErrors.Required(nameof(body.OwnerUserId)));
-        }
-        if (!CanManageCommunity(membership)
+        if (!string.IsNullOrWhiteSpace(body.OwnerUserId)
             && !string.Equals(body.OwnerUserId, item.OwnerUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Invalid("OwnerUserId cannot be changed."));
         }
+        body.OwnerUserId = item.OwnerUserId;
         if (string.IsNullOrWhiteSpace(body.Name))
         {
             return RepositoryResult<Item>.Failure(ApiErrors.Required(nameof(body.Name)));

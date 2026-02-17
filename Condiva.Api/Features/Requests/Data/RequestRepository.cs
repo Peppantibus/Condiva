@@ -299,15 +299,12 @@ public sealed class RequestRepository : IRequestRepository
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Required(nameof(body.CommunityId)));
         }
-        if (string.IsNullOrWhiteSpace(body.RequesterUserId))
-        {
-            return RepositoryResult<Request>.Failure(ApiErrors.Required(nameof(body.RequesterUserId)));
-        }
-        if (!CanManageCommunity(membership)
+        if (!string.IsNullOrWhiteSpace(body.RequesterUserId)
             && !string.Equals(body.RequesterUserId, request.RequesterUserId, StringComparison.Ordinal))
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Invalid("RequesterUserId cannot be changed."));
         }
+        body.RequesterUserId = request.RequesterUserId;
         if (string.IsNullOrWhiteSpace(body.Title))
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Required(nameof(body.Title)));

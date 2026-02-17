@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Loans.Models;
@@ -94,11 +95,16 @@ public static class OffersEndpoints
             {
                 return ApiErrors.Invalid("Invalid status.");
             }
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
 
             var model = new Offer
             {
                 CommunityId = body.CommunityId,
-                OffererUserId = body.OffererUserId,
+                OffererUserId = actorUserId,
                 RequestId = body.RequestId,
                 ItemId = body.ItemId,
                 Message = body.Message,
