@@ -12,6 +12,7 @@ using Condiva.Api.Common.Auth.Services;
 using Condiva.Api.Common.Idempotency;
 using Condiva.Api.Common.Idempotency.Configuration;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Serialization;
 using Condiva.Api.Common.Security;
 using Condiva.Api.Features.Communities;
 using Condiva.Api.Features.Communities.Data;
@@ -55,6 +56,8 @@ public static class ServiceCollectionExtensions
         services.AddControllers()
             .AddJsonOptions(options =>
             {
+                options.JsonSerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
+                options.JsonSerializerOptions.Converters.Add(new UtcNullableDateTimeJsonConverter());
                 options.JsonSerializerOptions.Converters.Add(
                     new System.Text.Json.Serialization.JsonStringEnumConverter());
             });

@@ -55,7 +55,7 @@ public static class OffersEndpoints
                     .Select(request => request.Id)
                     .ToHashSetAsync();
 
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(offer =>
                 {
                     if (!actorRolesByCommunity.TryGetValue(offer.CommunityId, out var actorRole))
@@ -75,9 +75,16 @@ public static class OffersEndpoints
                     };
                 })
                 .ToList();
+            var payload = new PagedResponseDto<OfferListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<List<OfferListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<OfferListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -186,7 +193,9 @@ public static class OffersEndpoints
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<OfferListItemDto>>(StatusCodes.Status200OK);

@@ -151,14 +151,16 @@ public static class NotificationsEndpoints
                 })
                 .ToList();
 
-            var payload = new PagedResult<NotificationListItemDto>(
+            var payload = new PagedResponseDto<NotificationListItemDto>(
                 items,
                 result.Data!.Page,
                 result.Data!.PageSize,
-                result.Data!.Total);
+                result.Data!.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<PagedResult<NotificationListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<NotificationListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

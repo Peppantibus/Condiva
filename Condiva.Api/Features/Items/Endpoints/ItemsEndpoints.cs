@@ -76,21 +76,17 @@ public static class ItemsEndpoints
                     AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorRole.Value)
                 })
                 .ToList();
-
-            var usePaging = page.HasValue || pageSize.HasValue;
-            if (!usePaging)
-            {
-                return Results.Ok(mapped);
-            }
+            var (sortField, sortOrder) = ParseSort(sort);
 
             var payload = new PagedResponseDto<ItemListItemDto>(
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                sortField,
+                sortOrder);
             return Results.Ok(payload);
         })
-            .Produces<List<ItemListItemDto>>(StatusCodes.Status200OK)
             .Produces<PagedResponseDto<ItemListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
@@ -463,6 +459,21 @@ public static class ItemsEndpoints
     {
         return user.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? user.FindFirst("sub")?.Value;
+    }
+
+    private static (string Sort, string Order) ParseSort(string? sort)
+    {
+        var normalized = string.IsNullOrWhiteSpace(sort)
+            ? "createdat_desc"
+            : sort.Trim().ToLowerInvariant();
+
+        return normalized switch
+        {
+            "createdat_asc" => ("createdAt", "asc"),
+            "name_asc" => ("name", "asc"),
+            "name_desc" => ("name", "desc"),
+            _ => ("createdAt", "desc")
+        };
     }
 
     private static async Task TryDeletePreviousObjectAsync(

@@ -35,6 +35,8 @@ public sealed class MembershipRepository : IMembershipRepository
         var memberships = await _dbContext.Memberships
             .Include(membership => membership.User)
             .Where(membership => actorCommunityIds.Contains(membership.CommunityId))
+            .OrderByDescending(membership => membership.JoinedAt ?? membership.CreatedAt)
+            .ThenBy(membership => membership.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Membership>>.Success(memberships);
     }
@@ -53,6 +55,8 @@ public sealed class MembershipRepository : IMembershipRepository
             .Where(membership =>
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active)
+            .OrderByDescending(membership => membership.JoinedAt ?? membership.CreatedAt)
+            .ThenBy(membership => membership.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Membership>>.Success(memberships);
     }
@@ -76,6 +80,8 @@ public sealed class MembershipRepository : IMembershipRepository
                 community => community.Id,
                 (_, community) => community)
             .Distinct()
+            .OrderBy(community => community.Name)
+            .ThenBy(community => community.Id)
             .ToListAsync();
 
         return RepositoryResult<IReadOnlyList<Community>>.Success(communities);

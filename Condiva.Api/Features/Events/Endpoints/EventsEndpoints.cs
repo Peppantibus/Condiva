@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Events.Data;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Events.Dtos;
 using Condiva.Api.Features.Events.Models;
 using Microsoft.AspNetCore.Routing;
@@ -30,9 +31,15 @@ public static class EventsEndpoints
 
             var payload = mapper.MapList<Event, EventListItemDto>(result.Data!)
                 .ToList();
-            return Results.Ok(payload);
+            return Results.Ok(new PagedResponseDto<EventListItemDto>(
+                payload,
+                1,
+                payload.Count,
+                payload.Count,
+                "createdAt",
+                "desc"));
         })
-            .Produces<List<EventListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<EventListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

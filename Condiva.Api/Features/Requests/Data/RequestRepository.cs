@@ -36,6 +36,8 @@ public sealed class RequestRepository : IRequestRepository
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active
                 && membership.CommunityId == communityId))
+            .OrderByDescending(request => request.CreatedAt)
+            .ThenBy(request => request.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Request>>.Success(requests);
     }

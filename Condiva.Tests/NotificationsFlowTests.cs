@@ -7,6 +7,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Loans.Models;
@@ -115,7 +116,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
             $"/api/notifications?communityId={communityId}&unreadOnly=true&page=1&pageSize=20");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<Condiva.Api.Common.Results.PagedResult<NotificationListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<NotificationListItemDto>>();
         Assert.NotNull(payload);
         Assert.Single(payload!.Items);
         Assert.Equal(NotificationType.LoanReservedToBorrower, payload.Items[0].Type);
@@ -153,7 +154,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
             $"/api/notifications?communityId={communityId}&page=1&pageSize=20");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<Condiva.Api.Common.Results.PagedResult<NotificationListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<NotificationListItemDto>>();
         Assert.NotNull(payload);
 
         var notification = Assert.Single(payload!.Items

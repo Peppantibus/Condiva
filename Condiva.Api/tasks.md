@@ -71,8 +71,8 @@ Regola stato:
   - Status: DONE
   - Scope: login, google, refresh response uniforme
 
-- [ ] Uniform pagination/sorting/date contracts
-  - Status: TODO
+- [x] Uniform pagination/sorting/date contracts
+  - Status: DONE
   - Scope: tutte le list response con schema unico + date ISO UTC
 
 - [ ] Concurrency control for updates
@@ -100,3 +100,4 @@ Regola stato:
 - 2026-02-17: completato `Media resolution strategy for list cards` (nuovo `POST /api/storage/resolve` batch per firmare piu `objectKeys` in una chiamata, dedup input, validazioni key e response typed con `items[]` + `expiresIn`).
 - 2026-02-17: completato `Ensure avatarUrl population in UserSummary everywhere` (mapper esteso con accesso servizi DI per firmare avatar URL da `ProfileImageKey` su items/requests/offers/loans/memberships + actor notifications, con test payload aggiornati).
 - 2026-02-17: completato `Canonical auth response shape` (login/google/refresh allineati su response unica `AuthSessionResponseDto` con `accessToken`, `expiresIn`, `tokenType`, `expiresAt`, `refreshTokenExpiresAt`, `user`; test auth aggiornati sul nuovo contratto).
+- 2026-02-17: completato `Uniform pagination/sorting/date contracts` (list endpoint uniformati su `PagedResponseDto` con `items/page/pageSize/total/sort/order`, ordinamenti di default esplicitati, converter JSON UTC per `DateTime`/`DateTime?`, notifiche allineate allo stesso contratto e test payload aggiornati su response paginate).

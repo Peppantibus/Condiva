@@ -1,6 +1,7 @@
 ﻿using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Memberships.Data;
@@ -41,7 +42,7 @@ public static class MembershipsEndpoints
             }
 
             var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(membership =>
                 {
                     if (!actorRolesByCommunity.TryGetValue(membership.CommunityId, out var actorRole))
@@ -58,9 +59,16 @@ public static class MembershipsEndpoints
                     };
                 })
                 .ToList();
+            var payload = new PagedResponseDto<MembershipListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "joinedAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<List<MembershipListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<MembershipListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/me", async (
             ClaimsPrincipal user,
@@ -81,7 +89,7 @@ public static class MembershipsEndpoints
             }
 
             var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(membership =>
                 {
                     if (!actorRolesByCommunity.TryGetValue(membership.CommunityId, out var actorRole))
@@ -98,9 +106,16 @@ public static class MembershipsEndpoints
                     };
                 })
                 .ToList();
+            var payload = new PagedResponseDto<MembershipListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "joinedAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<List<MembershipListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<MembershipListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/me/communities", async (
             ClaimsPrincipal user,
@@ -121,7 +136,7 @@ public static class MembershipsEndpoints
             }
 
             var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(community =>
                 {
                     if (!actorRolesByCommunity.TryGetValue(community.Id, out var actorRole))
@@ -135,9 +150,16 @@ public static class MembershipsEndpoints
                     };
                 })
                 .ToList();
+            var payload = new PagedResponseDto<CommunityListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "name",
+                "asc");
             return Results.Ok(payload);
         })
-            .Produces<List<CommunityListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<CommunityListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/me/communities-context", async (
             ClaimsPrincipal user,
@@ -157,7 +179,7 @@ public static class MembershipsEndpoints
                 .ThenBy(membership => membership.Community!.Name)
                 .ToListAsync();
 
-            var payload = memberships
+            var mapped = memberships
                 .Select(membership =>
                 {
                     var community = membership.Community;
@@ -184,10 +206,17 @@ public static class MembershipsEndpoints
                         membershipAllowedActions);
                 })
                 .ToList();
+            var payload = new PagedResponseDto<MyCommunityContextListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "status",
+                "desc");
 
             return Results.Ok(payload);
         })
-            .Produces<List<MyCommunityContextListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<MyCommunityContextListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

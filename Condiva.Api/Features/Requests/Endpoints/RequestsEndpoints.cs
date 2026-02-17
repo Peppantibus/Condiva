@@ -57,15 +57,22 @@ public static class RequestsEndpoints
                 return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
                 {
                     AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole.Value)
                 })
                 .ToList();
+            var payload = new PagedResponseDto<RequestListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<List<RequestListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -154,7 +161,9 @@ public static class RequestsEndpoints
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<OfferListItemDto>>(StatusCodes.Status200OK);
@@ -200,7 +209,9 @@ public static class RequestsEndpoints
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);

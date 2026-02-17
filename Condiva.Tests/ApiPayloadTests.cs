@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
@@ -75,10 +74,10 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<List<ItemListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<ItemListItemDto>>();
         Assert.NotNull(payload);
 
-        var item = payload!.Find(entry => entry.Id == itemId);
+        var item = payload!.Items.FirstOrDefault(entry => entry.Id == itemId);
         Assert.NotNull(item);
         Assert.NotNull(item!.Owner);
         Assert.Equal(ownerId, item.Owner.Id);
@@ -87,6 +86,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.NotNull(item.AllowedActions);
         Assert.Contains("view", item.AllowedActions!);
         Assert.Contains("update", item.AllowedActions!);
+        Assert.Equal("createdAt", payload.Sort);
+        Assert.Equal("desc", payload.Order);
     }
 
     [Fact]
@@ -106,17 +107,17 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         var itemsResponse = await client.GetAsync($"/api/items?communityId={communityId}");
         Assert.Equal(HttpStatusCode.OK, itemsResponse.StatusCode);
-        var itemsPayload = await itemsResponse.Content.ReadFromJsonAsync<List<ItemListItemDto>>();
+        var itemsPayload = await itemsResponse.Content.ReadFromJsonAsync<PagedResponseDto<ItemListItemDto>>();
         Assert.NotNull(itemsPayload);
-        var item = Assert.Single(itemsPayload!.Where(entry => entry.Id == itemId));
+        var item = Assert.Single(itemsPayload!.Items.Where(entry => entry.Id == itemId));
         Assert.NotNull(item.Owner);
         Assert.False(string.IsNullOrWhiteSpace(item.Owner.AvatarUrl));
 
         var requestsResponse = await client.GetAsync($"/api/requests?communityId={communityId}");
         Assert.Equal(HttpStatusCode.OK, requestsResponse.StatusCode);
-        var requestsPayload = await requestsResponse.Content.ReadFromJsonAsync<List<RequestListItemDto>>();
+        var requestsPayload = await requestsResponse.Content.ReadFromJsonAsync<PagedResponseDto<RequestListItemDto>>();
         Assert.NotNull(requestsPayload);
-        var request = Assert.Single(requestsPayload!.Where(entry => entry.Id == requestId));
+        var request = Assert.Single(requestsPayload!.Items.Where(entry => entry.Id == requestId));
         Assert.NotNull(request.Owner);
         Assert.False(string.IsNullOrWhiteSpace(request.Owner.AvatarUrl));
 
@@ -155,10 +156,10 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<List<RequestListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<RequestListItemDto>>();
         Assert.NotNull(payload);
 
-        var request = payload!.Find(entry => entry.Id == requestId);
+        var request = payload!.Items.FirstOrDefault(entry => entry.Id == requestId);
         Assert.NotNull(request);
         Assert.NotNull(request!.Owner);
         Assert.Equal(requesterId, request.Owner.Id);
@@ -171,6 +172,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         Assert.NotNull(request.AllowedActions);
         Assert.Contains("view", request.AllowedActions!);
         Assert.Contains("update", request.AllowedActions!);
+        Assert.Equal("createdAt", payload.Sort);
+        Assert.Equal("desc", payload.Order);
     }
 
     [Fact]
@@ -265,10 +268,10 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<List<OfferListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<OfferListItemDto>>();
         Assert.NotNull(payload);
 
-        var offer = payload!.Find(entry => entry.Id == offerId);
+        var offer = payload!.Items.FirstOrDefault(entry => entry.Id == offerId);
         Assert.NotNull(offer);
         Assert.NotNull(offer!.Community);
         Assert.Equal(communityId, offer.Community.Id);

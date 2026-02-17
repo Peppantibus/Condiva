@@ -38,6 +38,8 @@ public sealed class CommunityRepository : ICommunityRepository
                 community => community.Id,
                 (_, community) => community)
             .Distinct()
+            .OrderBy(community => community.Name)
+            .ThenBy(community => community.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Community>>.Success(communities);
     }

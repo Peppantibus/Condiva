@@ -69,20 +69,16 @@ public static class LoansEndpoints
                     };
                 })
                 .ToList();
-            var usePaging = page.HasValue || pageSize.HasValue;
-            if (!usePaging)
-            {
-                return Results.Ok(mapped);
-            }
 
             var payload = new PagedResponseDto<LoanListItemDto>(
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "startAt",
+                "desc");
             return Results.Ok(payload);
         })
-            .Produces<List<LoanListItemDto>>(StatusCodes.Status200OK)
             .Produces<PagedResponseDto<LoanListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (

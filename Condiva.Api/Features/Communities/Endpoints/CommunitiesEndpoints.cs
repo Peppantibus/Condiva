@@ -55,7 +55,7 @@ public static class CommunitiesEndpoints
             }
 
             var actorRolesByCommunity = await ActorMembershipRoles.GetRolesByCommunityAsync(dbContext, actorUserId);
-            var payload = result.Data!
+            var mapped = result.Data!
                 .Select(community =>
                 {
                     if (!actorRolesByCommunity.TryGetValue(community.Id, out var actorRole))
@@ -69,9 +69,16 @@ public static class CommunitiesEndpoints
                     };
                 })
                 .ToList();
+            var payload = new PagedResponseDto<CommunityListItemDto>(
+                mapped,
+                1,
+                mapped.Count,
+                mapped.Count,
+                "name",
+                "asc");
             return Results.Ok(payload);
         })
-            .Produces<List<CommunityListItemDto>>(StatusCodes.Status200OK);
+            .Produces<PagedResponseDto<CommunityListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,
@@ -329,7 +336,9 @@ public static class CommunitiesEndpoints
                 payload,
                 pageNumber,
                 size,
-                total));
+                total,
+                "joinedAt",
+                "desc"));
         })
             .Produces<PagedResponseDto<CommunityMemberListItemDto>>(StatusCodes.Status200OK);
 
@@ -395,7 +404,9 @@ public static class CommunitiesEndpoints
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
@@ -460,7 +471,9 @@ public static class CommunitiesEndpoints
                 mapped,
                 result.Data.Page,
                 result.Data.PageSize,
-                result.Data.Total);
+                result.Data.Total,
+                "createdAt",
+                "desc");
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<ItemListItemDto>>(StatusCodes.Status200OK);

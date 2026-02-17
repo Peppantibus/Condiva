@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -1080,10 +1079,10 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var response = await client.GetAsync("/api/communities");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<List<CommunityListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<CommunityListItemDto>>();
         Assert.NotNull(payload);
-        Assert.Single(payload);
-        Assert.Equal(communityId, payload![0].Id);
+        Assert.Single(payload!.Items);
+        Assert.Equal(communityId, payload.Items[0].Id);
     }
 
     [Fact]
@@ -1120,17 +1119,17 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var response = await client.GetAsync("/api/memberships/me/communities-context");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<List<MyCommunityContextListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<MyCommunityContextListItemDto>>();
         Assert.NotNull(payload);
 
-        var activeCommunity = payload!.FirstOrDefault(item => item.CommunityId == activeCommunityId);
+        var activeCommunity = payload!.Items.FirstOrDefault(item => item.CommunityId == activeCommunityId);
         Assert.NotNull(activeCommunity);
         Assert.Equal("Owner", activeCommunity!.Role);
         Assert.Equal("Active", activeCommunity.Status);
         Assert.Contains("manageMembers", activeCommunity.CommunityAllowedActions);
         Assert.Contains("leave", activeCommunity.MembershipAllowedActions);
 
-        var invitedCommunity = payload.FirstOrDefault(item => item.CommunityId == invitedCommunityId);
+        var invitedCommunity = payload.Items.FirstOrDefault(item => item.CommunityId == invitedCommunityId);
         Assert.NotNull(invitedCommunity);
         Assert.Equal("Moderator", invitedCommunity!.Role);
         Assert.Equal("Invited", invitedCommunity.Status);
@@ -1153,10 +1152,10 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var response = await client.GetAsync($"/api/items?communityId={communityId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var payload = await response.Content.ReadFromJsonAsync<List<ItemListItemDto>>();
+        var payload = await response.Content.ReadFromJsonAsync<PagedResponseDto<ItemListItemDto>>();
         Assert.NotNull(payload);
-        Assert.Single(payload);
-        Assert.Equal(itemId, payload![0].Id);
+        Assert.Single(payload!.Items);
+        Assert.Equal(itemId, payload.Items[0].Id);
     }
 
     [Fact]
@@ -1365,9 +1364,9 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
 
         var listResponse = await client.GetAsync("/api/communities");
         Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
-        var listPayload = await listResponse.Content.ReadFromJsonAsync<List<CommunityListItemDto>>();
+        var listPayload = await listResponse.Content.ReadFromJsonAsync<PagedResponseDto<CommunityListItemDto>>();
         Assert.NotNull(listPayload);
-        Assert.Contains(listPayload!, community => community.Id == payload!.Id);
+        Assert.Contains(listPayload!.Items, community => community.Id == payload!.Id);
     }
 
     [Fact]

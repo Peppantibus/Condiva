@@ -39,6 +39,8 @@ public sealed class OfferRepository : IOfferRepository
                 membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active
                 && membership.CommunityId == offer.CommunityId))
+            .OrderByDescending(offer => offer.CreatedAt)
+            .ThenBy(offer => offer.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Offer>>.Success(offers);
     }

@@ -35,6 +35,8 @@ public sealed class EventRepository : IEventRepository
                 membership => membership.CommunityId,
                 (evt, _) => evt)
             .Distinct()
+            .OrderByDescending(evt => evt.CreatedAt)
+            .ThenBy(evt => evt.Id)
             .ToListAsync();
         return RepositoryResult<IReadOnlyList<Event>>.Success(events);
     }
