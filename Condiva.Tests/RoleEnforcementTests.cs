@@ -17,6 +17,7 @@ using Condiva.Api.Features.Loans.Dtos;
 using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
+using Condiva.Api.Features.Memberships.Dtos;
 using Condiva.Tests.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -1104,6 +1105,39 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var payload = await response.Content.ReadFromJsonAsync<CommunityDetailsDto>();
         Assert.NotNull(payload);
         Assert.Equal(creatorId, payload!.CreatedByUserId);
+    }
+
+    [Fact]
+    public async Task GetMyCommunitiesContext_ReturnsCommunityAndMembershipContext()
+    {
+        var actorUserId = "my-communities-context-actor";
+        var otherOwnerUserId = "my-communities-context-other-owner";
+        var activeCommunityId = await SeedCommunityWithMembersAsync(actorUserId);
+        var invitedCommunityId = await SeedCommunityWithMembersAsync(otherOwnerUserId);
+        await AddMemberAsync(invitedCommunityId, actorUserId, MembershipRole.Moderator, MembershipStatus.Invited);
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.GetAsync("/api/memberships/me/communities-context");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<List<MyCommunityContextListItemDto>>();
+        Assert.NotNull(payload);
+
+        var activeCommunity = payload!.FirstOrDefault(item => item.CommunityId == activeCommunityId);
+        Assert.NotNull(activeCommunity);
+        Assert.Equal("Owner", activeCommunity!.Role);
+        Assert.Equal("Active", activeCommunity.Status);
+        Assert.Contains("manageMembers", activeCommunity.CommunityAllowedActions);
+        Assert.Contains("leave", activeCommunity.MembershipAllowedActions);
+
+        var invitedCommunity = payload.FirstOrDefault(item => item.CommunityId == invitedCommunityId);
+        Assert.NotNull(invitedCommunity);
+        Assert.Equal("Moderator", invitedCommunity!.Role);
+        Assert.Equal("Invited", invitedCommunity.Status);
+        Assert.Single(invitedCommunity.CommunityAllowedActions);
+        Assert.Equal("view", invitedCommunity.CommunityAllowedActions[0]);
+        Assert.Single(invitedCommunity.MembershipAllowedActions);
+        Assert.Equal("view", invitedCommunity.MembershipAllowedActions[0]);
     }
 
     [Fact]

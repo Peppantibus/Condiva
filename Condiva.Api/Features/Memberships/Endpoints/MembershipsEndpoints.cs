@@ -7,6 +7,7 @@ using Condiva.Api.Features.Memberships.Data;
 using Condiva.Api.Features.Memberships.Dtos;
 using Condiva.Api.Features.Memberships.Models;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 
@@ -137,6 +138,56 @@ public static class MembershipsEndpoints
             return Results.Ok(payload);
         })
             .Produces<List<CommunityListItemDto>>(StatusCodes.Status200OK);
+
+        group.MapGet("/me/communities-context", async (
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var memberships = await dbContext.Memberships
+                .AsNoTracking()
+                .Include(membership => membership.Community)
+                .Where(membership => membership.UserId == actorUserId)
+                .OrderByDescending(membership => membership.Status == MembershipStatus.Active)
+                .ThenBy(membership => membership.Community!.Name)
+                .ToListAsync();
+
+            var payload = memberships
+                .Select(membership =>
+                {
+                    var community = membership.Community;
+                    var fallbackName = community?.Name ?? string.Empty;
+                    var fallbackSlug = community?.Slug ?? string.Empty;
+                    var communityAllowedActions = membership.Status == MembershipStatus.Active
+                        ? AllowedActionsPolicy.ForCommunity(membership.Role)
+                        : ["view"];
+                    var membershipAllowedActions = membership.Status == MembershipStatus.Active
+                        ? AllowedActionsPolicy.ForMembership(membership, actorUserId, membership.Role)
+                        : ["view"];
+
+                    return new MyCommunityContextListItemDto(
+                        membership.CommunityId,
+                        fallbackName,
+                        fallbackSlug,
+                        community?.Description,
+                        community?.ImageKey,
+                        membership.Id,
+                        membership.Role.ToString(),
+                        membership.Status.ToString(),
+                        membership.JoinedAt,
+                        communityAllowedActions,
+                        membershipAllowedActions);
+                })
+                .ToList();
+
+            return Results.Ok(payload);
+        })
+            .Produces<List<MyCommunityContextListItemDto>>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

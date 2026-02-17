@@ -49,8 +49,8 @@ Regola stato:
   - Status: DONE
   - Scope: filtri owner/status/category/search/sort + perspective loans
 
-- [ ] My communities endpoint with membership context
-  - Status: TODO
+- [x] My communities endpoint with membership context
+  - Status: DONE
   - Scope: endpoint unico community + membership role/status/permissions
 
 - [ ] Notifications enriched payload + proper unread-count
@@ -95,3 +95,4 @@ Regola stato:
 - 2026-02-17: completato `Request offers include item summary` (DTO offer esteso con `item` embedded, include query `Item+Owner` su request offers e test payload aggiornati).
 - 2026-02-17: completato `Dashboard aggregate endpoint` (nuovo `GET /api/dashboard/{communityId}` con `openRequestsPreview`, `availableItemsPreview`, `myRequestsPreview`, `counters` e test payload/authorization).
 - 2026-02-17: completato `Server-side filtering for items/loans/my views` (items con filtri `owner/status/category/search/sort` + paging opzionale, loans con filtro `perspective=lent|borrowed`, test di filtro/paging aggiornati).
+- 2026-02-17: completato `My communities endpoint with membership context` (nuovo `GET /api/memberships/me/communities-context` con dati community + ruolo/stato membership + action sets).
