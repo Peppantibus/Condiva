@@ -2,41 +2,56 @@ using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Items.Models;
+using Condiva.Api.Infrastructure.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Condiva.Api.Features.Items.Dtos;
 
 public static class ItemMappings
 {
+    private const int AvatarPresignTtlSeconds = 300;
+
     public static void Register(MapperRegistry registry)
     {
-        registry.Register<Item, ItemListItemDto>(item => new ItemListItemDto(
-            item.Id,
-            item.CommunityId,
-            item.OwnerUserId,
-            item.Name,
-            item.Description,
-            item.Category,
-            item.ImageKey,
-            item.Status.ToString(),
-            item.CreatedAt,
-            item.UpdatedAt,
-            BuildUserSummary(item.OwnerUser, item.OwnerUserId)));
+        registry.Register<Item, ItemListItemDto>((item, services) =>
+        {
+            var storageService = services.GetRequiredService<IR2StorageService>();
+            return new ItemListItemDto(
+                item.Id,
+                item.CommunityId,
+                item.OwnerUserId,
+                item.Name,
+                item.Description,
+                item.Category,
+                item.ImageKey,
+                item.Status.ToString(),
+                item.CreatedAt,
+                item.UpdatedAt,
+                BuildUserSummary(item.OwnerUser, item.OwnerUserId, storageService));
+        });
 
-        registry.Register<Item, ItemDetailsDto>(item => new ItemDetailsDto(
-            item.Id,
-            item.CommunityId,
-            item.OwnerUserId,
-            item.Name,
-            item.Description,
-            item.Category,
-            item.ImageKey,
-            item.Status.ToString(),
-            item.CreatedAt,
-            item.UpdatedAt,
-            BuildUserSummary(item.OwnerUser, item.OwnerUserId)));
+        registry.Register<Item, ItemDetailsDto>((item, services) =>
+        {
+            var storageService = services.GetRequiredService<IR2StorageService>();
+            return new ItemDetailsDto(
+                item.Id,
+                item.CommunityId,
+                item.OwnerUserId,
+                item.Name,
+                item.Description,
+                item.Category,
+                item.ImageKey,
+                item.Status.ToString(),
+                item.CreatedAt,
+                item.UpdatedAt,
+                BuildUserSummary(item.OwnerUser, item.OwnerUserId, storageService));
+        });
     }
 
-    private static UserSummaryDto BuildUserSummary(User? user, string fallbackUserId)
+    private static UserSummaryDto BuildUserSummary(
+        User? user,
+        string fallbackUserId,
+        IR2StorageService storageService)
     {
         if (user is null)
         {
@@ -58,7 +73,10 @@ public static class ItemMappings
         }
 
         var userName = user.Username ?? string.Empty;
+        var avatarUrl = string.IsNullOrWhiteSpace(user.ProfileImageKey)
+            ? null
+            : storageService.GeneratePresignedGetUrl(user.ProfileImageKey, AvatarPresignTtlSeconds);
 
-        return new UserSummaryDto(user.Id, displayName, userName, null);
+        return new UserSummaryDto(user.Id, displayName, userName, avatarUrl);
     }
 }

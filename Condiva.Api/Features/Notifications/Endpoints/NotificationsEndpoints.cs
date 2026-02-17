@@ -9,6 +9,7 @@ using Condiva.Api.Features.Notifications.Dtos;
 using Condiva.Api.Features.Notifications.Models;
 using Condiva.Api.Features.Offers.Models;
 using Condiva.Api.Features.Requests.Models;
+using Condiva.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,6 +19,8 @@ namespace Condiva.Api.Features.Notifications.Endpoints;
 
 public static class NotificationsEndpoints
 {
+    private const int AvatarPresignTtlSeconds = 300;
+
     public static IEndpointRouteBuilder MapNotificationsEndpoints(
         this IEndpointRouteBuilder endpoints)
     {
@@ -32,7 +35,8 @@ public static class NotificationsEndpoints
             int? pageSize,
             ClaimsPrincipal user,
             INotificationRepository repository,
-            CondivaDbContext dbContext) =>
+            CondivaDbContext dbContext,
+            IR2StorageService storageService) =>
         {
             var result = await repository.GetPagedAsync(communityId, unreadOnly, page, pageSize, user);
             if (!result.IsSuccess)
@@ -125,7 +129,7 @@ public static class NotificationsEndpoints
                         requestsById.TryGetValue(notification.EntityId, out request);
                     }
 
-                    var actor = BuildUserSummary(evt?.ActorUser);
+                    var actor = BuildUserSummary(evt?.ActorUser, storageService);
                     var message = BuildMessage(notification.Type, actor?.DisplayName);
                     var entitySummary = BuildEntitySummary(notification, offer, loan, request);
                     var target = BuildTarget(notification, offer, loan);
@@ -226,7 +230,9 @@ public static class NotificationsEndpoints
         return endpoints;
     }
 
-    private static UserSummaryDto? BuildUserSummary(User? user)
+    private static UserSummaryDto? BuildUserSummary(
+        User? user,
+        IR2StorageService storageService)
     {
         if (user is null)
         {
@@ -247,7 +253,10 @@ public static class NotificationsEndpoints
             displayName = user.Id;
         }
 
-        return new UserSummaryDto(user.Id, displayName, user.Username ?? string.Empty, null);
+        var avatarUrl = string.IsNullOrWhiteSpace(user.ProfileImageKey)
+            ? null
+            : storageService.GeneratePresignedGetUrl(user.ProfileImageKey, AvatarPresignTtlSeconds);
+        return new UserSummaryDto(user.Id, displayName, user.Username ?? string.Empty, avatarUrl);
     }
 
     private static string BuildMessage(NotificationType type, string? actorDisplayName)

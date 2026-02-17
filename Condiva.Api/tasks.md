@@ -61,8 +61,8 @@ Regola stato:
   - Status: DONE
   - Scope: signed `imageUrl` in list o endpoint batch resolve
 
-- [ ] Ensure avatarUrl population in UserSummary everywhere
-  - Status: TODO
+- [x] Ensure avatarUrl population in UserSummary everywhere
+  - Status: DONE
   - Scope: tutti gli endpoint con `UserSummaryDto`
 
 ## P2 Contract consistency e platform quality
@@ -98,3 +98,4 @@ Regola stato:
 - 2026-02-17: completato `My communities endpoint with membership context` (nuovo `GET /api/memberships/me/communities-context` con dati community + ruolo/stato membership + action sets).
 - 2026-02-17: completato `Notifications enriched payload + proper unread-count` (`GET /api/notifications/unread-count` typed con `unreadCount`, `GET /api/notifications` arricchito con `message`, `actor`, `entitySummary`, `target` e test coverage dedicata).
 - 2026-02-17: completato `Media resolution strategy for list cards` (nuovo `POST /api/storage/resolve` batch per firmare piu `objectKeys` in una chiamata, dedup input, validazioni key e response typed con `items[]` + `expiresIn`).
+- 2026-02-17: completato `Ensure avatarUrl population in UserSummary everywhere` (mapper esteso con accesso servizi DI per firmare avatar URL da `ProfileImageKey` su items/requests/offers/loans/memberships + actor notifications, con test payload aggiornati).

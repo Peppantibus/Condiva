@@ -90,6 +90,48 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task UserSummaries_WithProfileImageKey_IncludeAvatarUrl()
+    {
+        var requesterId = $"avatar-requester-{Guid.NewGuid():N}";
+        var offererId = $"avatar-offerer-{Guid.NewGuid():N}";
+        await SeedUserAsync(requesterId, $"users/{requesterId}/avatar.png");
+        await SeedUserAsync(offererId, $"users/{offererId}/avatar.png");
+
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, offererId);
+        var itemId = await SeedItemAsync(communityId, offererId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        await SeedOfferAsync(communityId, offererId, itemId, requestId);
+
+        using var client = CreateClientWithToken(requesterId);
+
+        var itemsResponse = await client.GetAsync($"/api/items?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, itemsResponse.StatusCode);
+        var itemsPayload = await itemsResponse.Content.ReadFromJsonAsync<List<ItemListItemDto>>();
+        Assert.NotNull(itemsPayload);
+        var item = Assert.Single(itemsPayload!.Where(entry => entry.Id == itemId));
+        Assert.NotNull(item.Owner);
+        Assert.False(string.IsNullOrWhiteSpace(item.Owner.AvatarUrl));
+
+        var requestsResponse = await client.GetAsync($"/api/requests?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, requestsResponse.StatusCode);
+        var requestsPayload = await requestsResponse.Content.ReadFromJsonAsync<List<RequestListItemDto>>();
+        Assert.NotNull(requestsPayload);
+        var request = Assert.Single(requestsPayload!.Where(entry => entry.Id == requestId));
+        Assert.NotNull(request.Owner);
+        Assert.False(string.IsNullOrWhiteSpace(request.Owner.AvatarUrl));
+
+        var requestOffersResponse = await client.GetAsync($"/api/requests/{requestId}/offers");
+        Assert.Equal(HttpStatusCode.OK, requestOffersResponse.StatusCode);
+        var offersPayload = await requestOffersResponse.Content.ReadFromJsonAsync<PagedResponseDto<OfferListItemDto>>();
+        Assert.NotNull(offersPayload);
+        var offer = Assert.Single(offersPayload!.Items);
+        Assert.NotNull(offer.Offerer);
+        Assert.False(string.IsNullOrWhiteSpace(offer.Offerer.AvatarUrl));
+        Assert.NotNull(offer.Item.Owner);
+        Assert.False(string.IsNullOrWhiteSpace(offer.Item.Owner.AvatarUrl));
+    }
+
+    [Fact]
     public async Task GetRequests_WithoutCommunityId_ReturnsBadRequest()
     {
         var userId = $"requests-user-{Guid.NewGuid():N}";
@@ -293,7 +335,7 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         return client;
     }
 
-    private async Task SeedUserAsync(string userId)
+    private async Task SeedUserAsync(string userId, string? profileImageKey = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
@@ -301,6 +343,12 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         var existing = await dbContext.Users.FindAsync(userId);
         if (existing is not null)
         {
+            if (!string.IsNullOrWhiteSpace(profileImageKey)
+                && !string.Equals(existing.ProfileImageKey, profileImageKey, StringComparison.Ordinal))
+            {
+                existing.ProfileImageKey = profileImageKey;
+                await dbContext.SaveChangesAsync();
+            }
             return;
         }
 
@@ -313,7 +361,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             Salt = "salt",
             EmailVerified = true,
             Name = "Test",
-            LastName = "User"
+            LastName = "User",
+            ProfileImageKey = profileImageKey
         });
 
         await dbContext.SaveChangesAsync();

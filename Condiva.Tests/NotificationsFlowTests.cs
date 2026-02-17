@@ -126,6 +126,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
     {
         var requesterId = "notif-enriched-requester";
         var lenderId = "notif-enriched-lender";
+        await SeedUserAsync(lenderId, $"users/{lenderId}/avatar.png");
         var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
         var itemId = await SeedItemAsync(communityId, lenderId);
         var requestId = await SeedRequestAsync(communityId, requesterId);
@@ -162,6 +163,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         Assert.NotNull(notification.Actor);
         Assert.Equal(lenderId, notification.Actor!.Id);
         Assert.Equal($"{lenderId}-name", notification.Actor.Username);
+        Assert.False(string.IsNullOrWhiteSpace(notification.Actor.AvatarUrl));
 
         Assert.NotNull(notification.EntitySummary);
         Assert.Equal("Offer", notification.EntitySummary!.EntityType);
@@ -278,7 +280,7 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         return communityId;
     }
 
-    private async Task SeedUserAsync(string userId)
+    private async Task SeedUserAsync(string userId, string? profileImageKey = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
@@ -286,6 +288,12 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
         var existing = await dbContext.Users.FindAsync(userId);
         if (existing is not null)
         {
+            if (!string.IsNullOrWhiteSpace(profileImageKey)
+                && !string.Equals(existing.ProfileImageKey, profileImageKey, StringComparison.Ordinal))
+            {
+                existing.ProfileImageKey = profileImageKey;
+                await dbContext.SaveChangesAsync();
+            }
             return;
         }
 
@@ -298,7 +306,8 @@ public sealed class NotificationsFlowTests : IClassFixture<CondivaApiFactory>
             Salt = "salt",
             EmailVerified = true,
             Name = "Test",
-            LastName = "User"
+            LastName = "User",
+            ProfileImageKey = profileImageKey
         });
 
         await dbContext.SaveChangesAsync();
