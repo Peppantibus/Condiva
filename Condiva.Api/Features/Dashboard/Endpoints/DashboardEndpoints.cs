@@ -1,11 +1,10 @@
 using Condiva.Api.Common.Auth;
+using Condiva.Api.Common.Auth.Models;
+using Condiva.Api.Common.Dtos;
 using Condiva.Api.Common.Errors;
-using Condiva.Api.Common.Mapping;
 using Condiva.Api.Features.Dashboard.Dtos;
-using Condiva.Api.Features.Items.Dtos;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Memberships.Models;
-using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
 using Condiva.Api.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -31,7 +30,6 @@ public static class DashboardEndpoints
             int? previewSize,
             ClaimsPrincipal user,
             CondivaDbContext dbContext,
-            IMapper mapper,
             IR2StorageService storageService) =>
         {
             var actorUserId = CurrentUser.GetUserId(user);
@@ -60,7 +58,6 @@ public static class DashboardEndpoints
             var size = ClampPreviewSize(previewSize);
             var openRequestsQuery = dbContext.Requests
                 .AsNoTracking()
-                .Include(request => request.Community)
                 .Include(request => request.RequesterUser)
                 .Where(request =>
                     request.CommunityId == communityIdValue
@@ -73,7 +70,6 @@ public static class DashboardEndpoints
                     && item.Status == ItemStatus.Available);
             var myRequestsQuery = dbContext.Requests
                 .AsNoTracking()
-                .Include(request => request.Community)
                 .Include(request => request.RequesterUser)
                 .Where(request =>
                     request.CommunityId == communityIdValue
@@ -97,46 +93,34 @@ public static class DashboardEndpoints
                 .ToListAsync();
 
             var openRequestsPreview = openRequests
-                .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
-                {
-                    AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)
-                })
                 .Select(request => new DashboardPreviewItemDto(
                     request.Id,
                     request.Title,
-                    request.Status,
-                    request.Owner,
+                    request.Status.ToString(),
+                    BuildUserSummary(request.RequesterUser, request.RequesterUserId, storageService),
                     request.CreatedAt,
                     ResolveThumbnailUrl(request.ImageKey, storageService),
-                    request.AllowedActions))
+                    AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)))
                 .ToList();
             var availableItemsPreview = availableItems
-                .Select(item => mapper.Map<Item, ItemListItemDto>(item) with
-                {
-                    AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorMembership.Role)
-                })
                 .Select(item => new DashboardPreviewItemDto(
                     item.Id,
                     item.Name,
-                    item.Status,
-                    item.Owner,
+                    item.Status.ToString(),
+                    BuildUserSummary(item.OwnerUser, item.OwnerUserId, storageService),
                     item.CreatedAt,
                     ResolveThumbnailUrl(item.ImageKey, storageService),
-                    item.AllowedActions))
+                    AllowedActionsPolicy.ForItem(item, actorUserId, actorMembership.Role)))
                 .ToList();
             var myRequestsPreview = myRequests
-                .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
-                {
-                    AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)
-                })
                 .Select(request => new DashboardPreviewItemDto(
                     request.Id,
                     request.Title,
-                    request.Status,
-                    request.Owner,
+                    request.Status.ToString(),
+                    BuildUserSummary(request.RequesterUser, request.RequesterUserId, storageService),
                     request.CreatedAt,
                     ResolveThumbnailUrl(request.ImageKey, storageService),
-                    request.AllowedActions))
+                    AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)))
                 .ToList();
 
             var payload = new DashboardSummaryDto(
@@ -184,5 +168,36 @@ public static class DashboardEndpoints
         return string.IsNullOrWhiteSpace(imageKey)
             ? null
             : storageService.GeneratePresignedGetUrl(imageKey, ThumbnailPresignTtlSeconds);
+    }
+
+    private static UserSummaryDto BuildUserSummary(
+        User? user,
+        string fallbackUserId,
+        IR2StorageService storageService)
+    {
+        if (user is null)
+        {
+            return new UserSummaryDto(fallbackUserId, string.Empty, string.Empty, null);
+        }
+
+        var displayName = string.Empty;
+        if (!string.IsNullOrWhiteSpace(user.Name) || !string.IsNullOrWhiteSpace(user.LastName))
+        {
+            displayName = $"{user.Name} {user.LastName}".Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(user.Username))
+        {
+            displayName = user.Username;
+        }
+        else
+        {
+            displayName = user.Id;
+        }
+
+        var avatarUrl = string.IsNullOrWhiteSpace(user.ProfileImageKey)
+            ? null
+            : storageService.GeneratePresignedGetUrl(user.ProfileImageKey, ThumbnailPresignTtlSeconds);
+
+        return new UserSummaryDto(user.Id, displayName, user.Username ?? string.Empty, avatarUrl);
     }
 }
