@@ -414,6 +414,52 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetRequests_WithIfNoneMatch_ReturnsNotModified()
+    {
+        var requesterId = $"requests-etag-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var firstResponse = await client.GetAsync($"/api/requests?communityId={communityId}&status=Open&pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.True(firstResponse.Headers.TryGetValues("ETag", out var etagValues));
+        var etag = Assert.Single(etagValues);
+        Assert.True((firstResponse.Headers.CacheControl?.ToString() ?? string.Empty)
+            .Contains("max-age=", StringComparison.OrdinalIgnoreCase));
+
+        using var secondRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/requests?communityId={communityId}&status=Open&pageSize=20");
+        secondRequest.Headers.TryAddWithoutValidation("If-None-Match", etag);
+
+        var secondResponse = await client.SendAsync(secondRequest);
+        Assert.Equal(HttpStatusCode.NotModified, secondResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetRequestCounts_WithIfNoneMatch_ReturnsNotModified()
+    {
+        var requesterId = $"requests-counts-etag-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        await SeedRequestAsync(communityId, requesterId, RequestStatus.Open, DateTime.UtcNow.AddHours(5));
+
+        using var client = CreateClientWithToken(requesterId);
+        var firstResponse = await client.GetAsync($"/api/requests/counts?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.True(firstResponse.Headers.TryGetValues("ETag", out var etagValues));
+        var etag = Assert.Single(etagValues);
+
+        using var secondRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/api/requests/counts?communityId={communityId}");
+        secondRequest.Headers.TryAddWithoutValidation("If-None-Match", etag);
+
+        var secondResponse = await client.SendAsync(secondRequest);
+        Assert.Equal(HttpStatusCode.NotModified, secondResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task GetRequestsMe_IncludesCommunitySummary()
     {
         var requesterId = $"requests-me-{Guid.NewGuid():N}";
@@ -490,6 +536,27 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         await AssertErrorEnvelopeAsync(response, "forbidden");
+    }
+
+    [Fact]
+    public async Task GetDashboard_WithIfNoneMatch_ReturnsNotModified()
+    {
+        var ownerId = $"dashboard-etag-owner-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await SeedRequestAsync(communityId, ownerId);
+        await SeedItemAsync(communityId, ownerId, ItemStatus.Available);
+
+        using var client = CreateClientWithToken(ownerId);
+        var firstResponse = await client.GetAsync($"/api/dashboard/{communityId}?previewSize=2");
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+        Assert.True(firstResponse.Headers.TryGetValues("ETag", out var etagValues));
+        var etag = Assert.Single(etagValues);
+
+        using var secondRequest = new HttpRequestMessage(HttpMethod.Get, $"/api/dashboard/{communityId}?previewSize=2");
+        secondRequest.Headers.TryAddWithoutValidation("If-None-Match", etag);
+
+        var secondResponse = await client.SendAsync(secondRequest);
+        Assert.Equal(HttpStatusCode.NotModified, secondResponse.StatusCode);
     }
 
     [Fact]

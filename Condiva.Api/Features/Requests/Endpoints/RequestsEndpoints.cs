@@ -3,6 +3,7 @@ using Condiva.Api.Common.Errors;
 using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Dtos;
 using Condiva.Api.Features.Offers.Models;
@@ -15,6 +16,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
+using System.Text;
 
 namespace Condiva.Api.Features.Requests.Endpoints;
 
@@ -22,6 +24,7 @@ public static class RequestsEndpoints
 {
     private const int DownloadPresignTtlSeconds = 300;
     private const int ExpiringSoonWindowHours = 72;
+    private const int ShortCacheTtlSeconds = 20;
 
     public static IEndpointRouteBuilder MapRequestsEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -39,6 +42,8 @@ public static class RequestsEndpoints
             ClaimsPrincipal user,
             IRequestRepository repository,
             IMapper mapper,
+            HttpRequest request,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             if (string.IsNullOrWhiteSpace(communityId))
@@ -70,6 +75,21 @@ public static class RequestsEndpoints
                 return ApiErrors.Forbidden("User is not a member of the community.");
             }
 
+            var (sortField, sortOrder) = ParseSort(sort);
+            var entityTag = EntityTagHelper.ComputeFromText(BuildRequestsListTagSeed(
+                communityId,
+                status,
+                sortField,
+                sortOrder,
+                actorUserId,
+                actorRole.Value,
+                result.Data!));
+            if (EntityTagHelper.IsIfNoneMatchSatisfied(request.Headers.IfNoneMatch.ToString(), entityTag))
+            {
+                SetShortCacheHeaders(httpContext, entityTag);
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            }
+
             var mapped = result.Data!
                 .Items
                 .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
@@ -77,7 +97,6 @@ public static class RequestsEndpoints
                     AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole.Value)
                 })
                 .ToList();
-            var (sortField, sortOrder) = ParseSort(sort);
             var payload = new PagedResponseDto<RequestListItemDto>(
                 mapped,
                 1,
@@ -87,6 +106,7 @@ public static class RequestsEndpoints
                 sortOrder,
                 result.Data.Cursor,
                 result.Data.NextCursor);
+            SetShortCacheHeaders(httpContext, entityTag);
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
@@ -94,6 +114,8 @@ public static class RequestsEndpoints
         group.MapGet("/counts", async (
             string? communityId,
             ClaimsPrincipal user,
+            HttpRequest request,
+            HttpContext httpContext,
             CondivaDbContext dbContext) =>
         {
             if (string.IsNullOrWhiteSpace(communityId))
@@ -133,8 +155,17 @@ public static class RequestsEndpoints
                         && request.NeededTo.Value >= now
                         && request.NeededTo.Value <= expiringBefore)))
                 .FirstOrDefaultAsync();
+            var payload = counts ?? new RequestCountsDto(0, 0, 0);
+            var entityTag = EntityTagHelper.ComputeFromText(
+                $"{communityId}|{actorUserId}|{payload.Open}|{payload.MyOpen}|{payload.ExpiringSoon}");
+            if (EntityTagHelper.IsIfNoneMatchSatisfied(request.Headers.IfNoneMatch.ToString(), entityTag))
+            {
+                SetShortCacheHeaders(httpContext, entityTag);
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            }
 
-            return Results.Ok(counts ?? new RequestCountsDto(0, 0, 0));
+            SetShortCacheHeaders(httpContext, entityTag);
+            return Results.Ok(payload);
         })
             .Produces<RequestCountsDto>(StatusCodes.Status200OK);
 
@@ -698,6 +729,44 @@ public static class RequestsEndpoints
             "createdat:asc" => ("createdAt", "asc"),
             _ => ("createdAt", "desc")
         };
+    }
+
+    private static string BuildRequestsListTagSeed(
+        string communityId,
+        string? status,
+        string sortField,
+        string sortOrder,
+        string actorUserId,
+        MembershipRole actorRole,
+        CursorPagedResult<Request> page)
+    {
+        var builder = new StringBuilder();
+        builder.Append(communityId).Append('|')
+            .Append(status ?? string.Empty).Append('|')
+            .Append(sortField).Append(':').Append(sortOrder).Append('|')
+            .Append(actorUserId).Append('|')
+            .Append(actorRole).Append('|')
+            .Append(page.Total).Append('|')
+            .Append(page.PageSize).Append('|')
+            .Append(page.Cursor ?? string.Empty).Append('|')
+            .Append(page.NextCursor ?? string.Empty);
+
+        foreach (var item in page.Items)
+        {
+            builder.Append('|')
+                .Append(item.Id).Append('@')
+                .Append(item.Status).Append('@')
+                .Append(item.CreatedAt.Ticks);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void SetShortCacheHeaders(HttpContext context, string entityTag)
+    {
+        EntityTagHelper.Set(context, entityTag);
+        context.Response.Headers.CacheControl = $"private, max-age={ShortCacheTtlSeconds}";
+        context.Response.Headers.Vary = "Authorization, Cookie";
     }
 
     public sealed record RequestImageResponseDto(string ObjectKey, string DownloadUrl);

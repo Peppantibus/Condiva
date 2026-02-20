@@ -1,6 +1,7 @@
 using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
+using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Errors;
 using Condiva.Api.Features.Dashboard.Dtos;
 using Condiva.Api.Features.Items.Models;
@@ -9,6 +10,7 @@ using Condiva.Api.Features.Requests.Models;
 using Condiva.Api.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Text;
 
 namespace Condiva.Api.Features.Dashboard.Endpoints;
 
@@ -18,6 +20,7 @@ public static class DashboardEndpoints
     private const int MaxPreviewSize = 20;
     private const int MaxCommunityIdLength = 64;
     private const int ThumbnailPresignTtlSeconds = 300;
+    private const int ShortCacheTtlSeconds = 20;
 
     public static IEndpointRouteBuilder MapDashboardEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -29,6 +32,8 @@ public static class DashboardEndpoints
             string communityId,
             int? previewSize,
             ClaimsPrincipal user,
+            HttpRequest request,
+            HttpContext httpContext,
             CondivaDbContext dbContext,
             IR2StorageService storageService) =>
         {
@@ -92,6 +97,22 @@ public static class DashboardEndpoints
                 .Take(size)
                 .ToListAsync();
 
+            var entityTag = EntityTagHelper.ComputeFromText(BuildDashboardTagSeed(
+                communityIdValue,
+                actorUserId,
+                size,
+                openRequestsTotal,
+                availableItemsTotal,
+                myRequestsTotal,
+                openRequests,
+                availableItems,
+                myRequests));
+            if (EntityTagHelper.IsIfNoneMatchSatisfied(request.Headers.IfNoneMatch.ToString(), entityTag))
+            {
+                SetShortCacheHeaders(httpContext, entityTag);
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            }
+
             var openRequestsPreview = openRequests
                 .Select(request => new DashboardPreviewItemDto(
                     request.Id,
@@ -128,6 +149,7 @@ public static class DashboardEndpoints
                 availableItemsPreview,
                 myRequestsPreview,
                 new DashboardCountersDto(openRequestsTotal, availableItemsTotal, myRequestsTotal));
+            SetShortCacheHeaders(httpContext, entityTag);
             return Results.Ok(payload);
         })
             .Produces<DashboardSummaryDto>(StatusCodes.Status200OK);
@@ -199,5 +221,58 @@ public static class DashboardEndpoints
             : storageService.GeneratePresignedGetUrl(user.ProfileImageKey, ThumbnailPresignTtlSeconds);
 
         return new UserSummaryDto(user.Id, displayName, user.Username ?? string.Empty, avatarUrl);
+    }
+
+    private static string BuildDashboardTagSeed(
+        string communityId,
+        string actorUserId,
+        int previewSize,
+        int openRequestsTotal,
+        int availableItemsTotal,
+        int myRequestsTotal,
+        IReadOnlyList<Request> openRequests,
+        IReadOnlyList<Item> availableItems,
+        IReadOnlyList<Request> myRequests)
+    {
+        var builder = new StringBuilder();
+        builder.Append(communityId).Append('|')
+            .Append(actorUserId).Append('|')
+            .Append(previewSize).Append('|')
+            .Append(openRequestsTotal).Append('|')
+            .Append(availableItemsTotal).Append('|')
+            .Append(myRequestsTotal);
+
+        foreach (var request in openRequests)
+        {
+            builder.Append("|open:")
+                .Append(request.Id).Append('@')
+                .Append(request.Status).Append('@')
+                .Append(request.CreatedAt.Ticks);
+        }
+
+        foreach (var item in availableItems)
+        {
+            builder.Append("|item:")
+                .Append(item.Id).Append('@')
+                .Append(item.Status).Append('@')
+                .Append(item.CreatedAt.Ticks);
+        }
+
+        foreach (var request in myRequests)
+        {
+            builder.Append("|mine:")
+                .Append(request.Id).Append('@')
+                .Append(request.Status).Append('@')
+                .Append(request.CreatedAt.Ticks);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void SetShortCacheHeaders(HttpContext context, string entityTag)
+    {
+        EntityTagHelper.Set(context, entityTag);
+        context.Response.Headers.CacheControl = $"private, max-age={ShortCacheTtlSeconds}";
+        context.Response.Headers.Vary = "Authorization, Cookie";
     }
 }

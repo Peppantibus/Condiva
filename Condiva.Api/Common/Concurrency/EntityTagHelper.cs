@@ -14,6 +14,17 @@ public static class EntityTagHelper
         context.Response.Headers.ETag = Compute(entity);
     }
 
+    public static void Set(HttpContext context, string entityTag)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        if (string.IsNullOrWhiteSpace(entityTag))
+        {
+            throw new ArgumentException("Entity tag cannot be empty.", nameof(entityTag));
+        }
+
+        context.Response.Headers.ETag = entityTag.Trim();
+    }
+
     public static bool IsIfMatchSatisfied(string? ifMatchHeader, object currentEntity)
     {
         if (string.IsNullOrWhiteSpace(ifMatchHeader))
@@ -41,12 +52,46 @@ public static class EntityTagHelper
         return false;
     }
 
+    public static bool IsIfNoneMatchSatisfied(string? ifNoneMatchHeader, string currentTag)
+    {
+        if (string.IsNullOrWhiteSpace(ifNoneMatchHeader))
+        {
+            return false;
+        }
+
+        var normalizedCurrent = NormalizeTag(currentTag);
+        var candidates = ifNoneMatchHeader
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate == "*")
+            {
+                return true;
+            }
+
+            if (string.Equals(NormalizeTag(candidate), normalizedCurrent, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static string Compute(object entity)
     {
         ArgumentNullException.ThrowIfNull(entity);
 
         var canonical = BuildCanonicalPayload(entity);
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
+        return $"\"{Convert.ToHexString(hash)}\"";
+    }
+
+    public static string ComputeFromText(string value)
+    {
+        var payload = value ?? string.Empty;
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
         return $"\"{Convert.ToHexString(hash)}\"";
     }
 
