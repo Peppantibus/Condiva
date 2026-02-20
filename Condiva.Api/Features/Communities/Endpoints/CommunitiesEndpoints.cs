@@ -11,6 +11,7 @@ using Condiva.Api.Features.Items.Dtos;
 using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Memberships.Dtos;
 using Condiva.Api.Features.Memberships.Models;
+using Condiva.Api.Features.Reputations.Models;
 using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
 using Condiva.Api.Features.Storage.Dtos;
@@ -197,6 +198,80 @@ public static class CommunitiesEndpoints
         })
             .Produces<MembershipDetailsDto>(StatusCodes.Status201Created);
 
+        group.MapGet("/{id}/members/{memberId}", async (
+            string id,
+            string memberId,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext,
+            IR2StorageService storageService) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+
+            var normalizedMemberId = Normalize(memberId);
+            if (string.IsNullOrWhiteSpace(normalizedMemberId))
+            {
+                return ApiErrors.Required(nameof(memberId));
+            }
+            if (normalizedMemberId.Length > MaxIdLength)
+            {
+                return ApiErrors.Invalid("Invalid memberId.");
+            }
+
+            var communityId = normalizedId!;
+            var membershipId = normalizedMemberId!;
+            var actorMembership = await dbContext.Memberships.AsNoTracking().FirstOrDefaultAsync(membership =>
+                membership.CommunityId == communityId
+                && membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active);
+            if (actorMembership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var membership = await dbContext.Memberships
+                .AsNoTracking()
+                .Include(foundMembership => foundMembership.User)
+                .FirstOrDefaultAsync(foundMembership =>
+                    foundMembership.CommunityId == communityId
+                    && foundMembership.Id == membershipId);
+            if (membership is null)
+            {
+                return ApiErrors.NotFound("Membership");
+            }
+
+            var reputation = await dbContext.Reputations
+                .AsNoTracking()
+                .FirstOrDefaultAsync(foundReputation =>
+                    foundReputation.CommunityId == communityId
+                    && foundReputation.UserId == membership.UserId);
+
+            var payload = new CommunityMemberDetailsDto(
+                membership.Id,
+                membership.UserId,
+                membership.CommunityId,
+                membership.Role.ToString(),
+                membership.Status.ToString(),
+                membership.JoinedAt,
+                BuildUserSummary(membership.User, membership.UserId, storageService),
+                BuildReputationSummary(reputation),
+                MembershipPermissionCatalog.ForMembership(membership),
+                AllowedActionsPolicy.ForMembership(membership, actorUserId, actorMembership.Role));
+
+            return Results.Ok(payload);
+        })
+            .Produces<CommunityMemberDetailsDto>(StatusCodes.Status200OK);
+
         group.MapGet("/{id}/members", async (
             string id,
             string? search,
@@ -317,11 +392,7 @@ public static class CommunitiesEndpoints
                 .Select(membership =>
                 {
                     reputationsByUserId.TryGetValue(membership.UserId, out var reputation);
-                    var reputationSummary = new CommunityMemberReputationSummaryDto(
-                        reputation?.Score ?? 0,
-                        reputation?.LendCount ?? 0,
-                        reputation?.ReturnCount ?? 0,
-                        reputation?.OnTimeReturnCount ?? 0);
+                    var reputationSummary = BuildReputationSummary(reputation);
 
                     return new CommunityMemberListItemDto(
                         membership.Id,
@@ -332,6 +403,7 @@ public static class CommunitiesEndpoints
                         membership.JoinedAt,
                         BuildUserSummary(membership.User, membership.UserId, storageService),
                         reputationSummary,
+                        MembershipPermissionCatalog.ForMembership(membership),
                         AllowedActionsPolicy.ForMembership(membership, actorUserId, actorMembership.Role));
                 })
                 .ToList();
@@ -630,7 +702,7 @@ public static class CommunitiesEndpoints
                 membership.CommunityId == normalizedId
                 && membership.UserId == actorUserId
                 && membership.Status == MembershipStatus.Active
-                && membership.Role == MembershipRole.Owner);
+                && (membership.Role == MembershipRole.Owner || membership.Role == MembershipRole.Admin));
             if (!canManage)
             {
                 return ApiErrors.Forbidden("User is not allowed to manage the community image.");
@@ -704,7 +776,7 @@ public static class CommunitiesEndpoints
                     && foundMembership.UserId == actorUserId
                     && foundMembership.Status == MembershipStatus.Active,
                 cancellationToken);
-            if (membership is null || membership.Role != MembershipRole.Owner)
+            if (membership is null || !MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
             {
                 return ApiErrors.Forbidden("User is not allowed to manage the community image.");
             }
@@ -810,7 +882,7 @@ public static class CommunitiesEndpoints
                     && foundMembership.UserId == actorUserId
                     && foundMembership.Status == MembershipStatus.Active,
                 cancellationToken);
-            if (membership is null || membership.Role != MembershipRole.Owner)
+            if (membership is null || !MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
             {
                 return ApiErrors.Forbidden("User is not allowed to manage the community image.");
             }
@@ -953,6 +1025,16 @@ public static class CommunitiesEndpoints
         return search.Length > MaxSearchLength
             ? ApiErrors.Invalid("Search filter is too long.")
             : null;
+    }
+
+    private static CommunityMemberReputationSummaryDto BuildReputationSummary(
+        ReputationProfile? reputation)
+    {
+        return new CommunityMemberReputationSummaryDto(
+            reputation?.Score ?? 0,
+            reputation?.LendCount ?? 0,
+            reputation?.ReturnCount ?? 0,
+            reputation?.OnTimeReturnCount ?? 0);
     }
 
     private static UserSummaryDto BuildUserSummary(

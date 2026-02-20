@@ -112,7 +112,7 @@ public sealed class CommunityRepository : ICommunityRepository
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
 
-        if (membership is null || membership.Role != MembershipRole.Owner)
+        if (membership is null || !MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
         {
             return RepositoryResult<InviteCodeInfo>.Failure(
                 ApiErrors.Forbidden("User is not allowed to rotate invites."));
@@ -409,7 +409,7 @@ public sealed class CommunityRepository : ICommunityRepository
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
-        if (membership is null || membership.Role != MembershipRole.Owner)
+        if (membership is null || !MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
         {
             return RepositoryResult<Community>.Failure(
                 ApiErrors.Forbidden("User is not allowed to update the community."));
@@ -448,7 +448,7 @@ public sealed class CommunityRepository : ICommunityRepository
             membership.CommunityId == id
             && membership.UserId == actorUserId
             && membership.Status == MembershipStatus.Active);
-        if (membership is null || membership.Role != MembershipRole.Owner)
+        if (membership is null || !MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
         {
             return RepositoryResult<bool>.Failure(
                 ApiErrors.Forbidden("User is not allowed to delete the community."));
@@ -462,8 +462,7 @@ public sealed class CommunityRepository : ICommunityRepository
 
     private static bool CanManageInvites(Membership membership)
     {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
+        return MembershipRolePolicy.CanManageInvites(membership.Role);
     }
 
     private static string CreateEnterCode()

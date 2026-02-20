@@ -591,7 +591,7 @@ public static class RequestsEndpoints
 
     private static bool CanManageRequest(Membership membership, string requesterUserId, string actorUserId)
     {
-        return membership.Role is MembershipRole.Owner or MembershipRole.Moderator
+        return MembershipRolePolicy.CanModerateContent(membership.Role)
             || string.Equals(requesterUserId, actorUserId, StringComparison.Ordinal);
     }
 

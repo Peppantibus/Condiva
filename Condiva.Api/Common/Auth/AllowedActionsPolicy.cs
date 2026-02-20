@@ -12,21 +12,25 @@ public static class AllowedActionsPolicy
 {
     public static bool IsManager(MembershipRole role)
     {
-        return role is MembershipRole.Owner or MembershipRole.Moderator;
+        return MembershipRolePolicy.CanModerateContent(role);
     }
 
     public static string[] ForCommunity(MembershipRole actorRole)
     {
         var actions = NewActions();
 
-        if (IsManager(actorRole))
+        if (MembershipRolePolicy.CanManageInvites(actorRole))
         {
             actions.Add("viewInviteCode");
             actions.Add("manageInvites");
+        }
+
+        if (MembershipRolePolicy.CanManageMembers(actorRole))
+        {
             actions.Add("manageMembers");
         }
 
-        if (actorRole == MembershipRole.Owner)
+        if (MembershipRolePolicy.CanManageCommunitySettings(actorRole))
         {
             actions.Add("update");
             actions.Add("delete");
@@ -50,7 +54,7 @@ public static class AllowedActionsPolicy
             actions.Add("leave");
         }
 
-        if (actorRole == MembershipRole.Owner)
+        if (MembershipRolePolicy.CanManageMembers(actorRole))
         {
             actions.Add("update");
             if (!isSelf)

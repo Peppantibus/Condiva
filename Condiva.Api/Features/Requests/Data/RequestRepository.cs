@@ -424,7 +424,6 @@ public sealed class RequestRepository : IRequestRepository
 
     private static bool CanManageCommunity(Membership membership)
     {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
+        return MembershipRolePolicy.CanModerateContent(membership.Role);
     }
 }

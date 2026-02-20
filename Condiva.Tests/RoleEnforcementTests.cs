@@ -79,6 +79,25 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task UpdateMembershipRole_AsAdmin_UpdatesRole()
+    {
+        var ownerId = "owner-role-admin-user";
+        var adminId = "admin-role-user";
+        var memberId = "member-role-admin-user";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+        await AddMemberAsync(communityId, adminId, MembershipRole.Admin);
+        var membershipId = await GetMembershipIdAsync(communityId, memberId);
+
+        using var client = CreateClientWithToken(adminId);
+        var response = await client.PostAsJsonAsync($"/api/memberships/{membershipId}/role", new
+        {
+            Role = "Moderator"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task UpdateMembershipRole_AsNonOwner_ReturnsForbidden()
     {
         var ownerId = "owner-role-user-2";
@@ -93,6 +112,26 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutCommunity_AsAdmin_ReturnsOk()
+    {
+        var ownerId = "community-admin-owner";
+        var adminId = "community-admin-user";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, adminId, MembershipRole.Admin);
+
+        using var client = CreateClientWithToken(adminId);
+        var response = await client.PutAsJsonAsync($"/api/communities/{communityId}", new
+        {
+            Id = communityId,
+            Name = "Community updated by admin",
+            Slug = "community-updated-by-admin",
+            CreatedByUserId = ownerId
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -131,6 +170,50 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task DeleteItem_AsUnrelatedMember_ReturnsForbidden()
+    {
+        var ownerId = "item-delete-owner";
+        var memberId = "item-delete-member";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.DeleteAsync($"/api/items/{itemId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteItem_AsModerator_ReturnsNoContent()
+    {
+        var ownerId = "item-delete-owner-mod";
+        var moderatorId = "item-delete-moderator";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.DeleteAsync($"/api/items/{itemId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteItem_AsAdmin_ReturnsNoContent()
+    {
+        var ownerId = "item-delete-owner-admin";
+        var adminId = "item-delete-admin";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, adminId, MembershipRole.Admin);
+        var itemId = await SeedItemAsync(communityId, ownerId);
+
+        using var client = CreateClientWithToken(adminId);
+        var response = await client.DeleteAsync($"/api/items/{itemId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
     public async Task UpdateRequest_AsNonRequester_ReturnsForbidden()
     {
         var requesterId = "requester-user";
@@ -150,6 +233,50 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         });
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteRequest_AsUnrelatedMember_ReturnsForbidden()
+    {
+        var requesterId = "request-delete-owner";
+        var memberId = "request-delete-member";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, memberId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.DeleteAsync($"/api/requests/{requestId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteRequest_AsModerator_ReturnsNoContent()
+    {
+        var requesterId = "request-delete-owner-mod";
+        var moderatorId = "request-delete-moderator";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.DeleteAsync($"/api/requests/{requestId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteRequest_AsAdmin_ReturnsNoContent()
+    {
+        var requesterId = "request-delete-owner-admin";
+        var adminId = "request-delete-admin";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        await AddMemberAsync(communityId, adminId, MembershipRole.Admin);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(adminId);
+        var response = await client.DeleteAsync($"/api/requests/{requestId}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
 
     [Fact]
@@ -573,6 +700,54 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task StartLoan_AsModerator_ReturnsOk()
+    {
+        var lenderId = "loan-start-lender-mod";
+        var borrowerId = "loan-start-borrower-mod";
+        var moderatorId = "loan-start-moderator";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId, borrowerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var loanId = await SeedLoanAsync(
+            communityId,
+            itemId,
+            lenderId,
+            borrowerId,
+            null,
+            Condiva.Api.Features.Loans.Models.LoanStatus.Reserved,
+            ItemStatus.Reserved);
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.PostAsync($"/api/loans/{loanId}/start", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task StartLoan_AsAdmin_ReturnsOk()
+    {
+        var lenderId = "loan-start-lender-admin";
+        var borrowerId = "loan-start-borrower-admin";
+        var adminId = "loan-start-admin";
+        var communityId = await SeedCommunityWithMembersAsync(lenderId, borrowerId);
+        await AddMemberAsync(communityId, adminId, MembershipRole.Admin);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var loanId = await SeedLoanAsync(
+            communityId,
+            itemId,
+            lenderId,
+            borrowerId,
+            null,
+            Condiva.Api.Features.Loans.Models.LoanStatus.Reserved,
+            ItemStatus.Reserved);
+
+        using var client = CreateClientWithToken(adminId);
+        var response = await client.PostAsync($"/api/loans/{loanId}/start", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateLoan_StatusMustBeReserved_ReturnsBadRequest()
     {
         var lenderId = "loan-status-lender";
@@ -951,6 +1126,45 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         Assert.Equal(4, member.ReputationSummary.LendCount);
         Assert.Equal(4, member.ReputationSummary.ReturnCount);
         Assert.Equal(3, member.ReputationSummary.OnTimeReturnCount);
+        Assert.Contains("requests.create", member.EffectivePermissions);
+    }
+
+    [Fact]
+    public async Task CommunityMemberDetailsEndpoint_AsOwner_ReturnsEffectivePermissions()
+    {
+        var ownerId = "members-detail-owner";
+        var moderatorId = "members-detail-moderator";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+        await SeedReputationAsync(communityId, moderatorId, 7, 2, 1, 1);
+        var membershipId = await GetMembershipIdAsync(communityId, moderatorId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/members/{membershipId}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<CommunityMemberDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal("Moderator", payload!.Role);
+        Assert.Contains("requests.moderate", payload.EffectivePermissions);
+        Assert.DoesNotContain("community.delete", payload.EffectivePermissions);
+        Assert.NotNull(payload.AllowedActions);
+        Assert.Contains("updateRole", payload.AllowedActions!);
+    }
+
+    [Fact]
+    public async Task CommunityMemberDetailsEndpoint_AsNonMember_ReturnsForbidden()
+    {
+        var ownerId = "members-detail-non-member-owner";
+        var outsiderId = "members-detail-outsider";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        var membershipId = await GetMembershipIdAsync(communityId, ownerId);
+        await SeedUserAsync(outsiderId);
+
+        using var client = CreateClientWithToken(outsiderId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/members/{membershipId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

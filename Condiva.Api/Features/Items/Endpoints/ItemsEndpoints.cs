@@ -481,7 +481,7 @@ public static class ItemsEndpoints
 
     private static bool CanManageItem(Membership membership, string ownerUserId, string actorUserId)
     {
-        return membership.Role is MembershipRole.Owner or MembershipRole.Moderator
+        return MembershipRolePolicy.CanModerateContent(membership.Role)
             || string.Equals(ownerUserId, actorUserId, StringComparison.Ordinal);
     }
 

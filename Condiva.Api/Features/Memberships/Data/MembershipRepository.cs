@@ -184,7 +184,7 @@ public sealed class MembershipRepository : IMembershipRepository
             actor.CommunityId == membership.CommunityId
             && actor.UserId == actorUserId
             && actor.Status == MembershipStatus.Active);
-        if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
+        if (actorMembership is null || !MembershipRolePolicy.CanManageMembers(actorMembership.Role))
         {
             return RepositoryResult<Membership>.Failure(
                 ApiErrors.Forbidden("User is not allowed to update membership."));
@@ -204,6 +204,22 @@ public sealed class MembershipRepository : IMembershipRepository
         if (!string.Equals(body.CommunityId, membership.CommunityId, StringComparison.Ordinal))
         {
             return RepositoryResult<Membership>.Failure(ApiErrors.Invalid("CommunityId cannot be changed."));
+        }
+        if (membership.UserId == actorUserId
+            && body.Role != membership.Role)
+        {
+            return RepositoryResult<Membership>.Failure(
+                ApiErrors.Invalid("Membership role cannot be changed by the same user."));
+        }
+        if (MembershipRolePolicy.IsLeadershipRole(membership.Role)
+            && !MembershipRolePolicy.IsLeadershipRole(body.Role))
+        {
+            var otherLeadershipMembers = await HasAnotherActiveLeadershipMemberAsync(membership);
+            if (!otherLeadershipMembers)
+            {
+                return RepositoryResult<Membership>.Failure(
+                    ApiErrors.Invalid("At least one active owner or admin is required."));
+            }
         }
         var userExists = await _dbContext.Users.AnyAsync(user => user.Id == body.UserId);
         if (!userExists)
@@ -268,7 +284,7 @@ public sealed class MembershipRepository : IMembershipRepository
             actor.CommunityId == membership.CommunityId
             && actor.UserId == actorUserId
             && actor.Status == MembershipStatus.Active);
-        if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
+        if (actorMembership is null || !MembershipRolePolicy.CanChangeRoles(actorMembership.Role))
         {
             return RepositoryResult<Membership>.Failure(
                 ApiErrors.Forbidden("User is not allowed to change roles."));
@@ -276,19 +292,16 @@ public sealed class MembershipRepository : IMembershipRepository
         if (membership.UserId == actorUserId)
         {
             return RepositoryResult<Membership>.Failure(
-                ApiErrors.Invalid("Owner role cannot be changed by the same user."));
+                ApiErrors.Invalid("Membership role cannot be changed by the same user."));
         }
-        if (membership.Role == MembershipRole.Owner && newRole != MembershipRole.Owner)
+        if (MembershipRolePolicy.IsLeadershipRole(membership.Role)
+            && !MembershipRolePolicy.IsLeadershipRole(newRole))
         {
-            var otherOwners = await _dbContext.Memberships.AnyAsync(other =>
-                other.CommunityId == membership.CommunityId
-                && other.Role == MembershipRole.Owner
-                && other.UserId != membership.UserId
-                && other.Status == MembershipStatus.Active);
-            if (!otherOwners)
+            var otherLeadershipMembers = await HasAnotherActiveLeadershipMemberAsync(membership);
+            if (!otherLeadershipMembers)
             {
                 return RepositoryResult<Membership>.Failure(
-                    ApiErrors.Invalid("At least one active owner is required."));
+                    ApiErrors.Invalid("At least one active owner or admin is required."));
             }
         }
 
@@ -316,18 +329,18 @@ public sealed class MembershipRepository : IMembershipRepository
             actor.CommunityId == membership.CommunityId
             && actor.UserId == actorUserId
             && actor.Status == MembershipStatus.Active);
-        if (actorMembership is null || actorMembership.Role != MembershipRole.Owner)
+        if (actorMembership is null || !MembershipRolePolicy.CanManageMembers(actorMembership.Role))
         {
             return RepositoryResult<bool>.Failure(
                 ApiErrors.Forbidden("User is not allowed to remove members."));
         }
-        if (membership.Role == MembershipRole.Owner)
+        if (MembershipRolePolicy.IsLeadershipRole(membership.Role))
         {
-            var canRemoveOwner = await HasAnotherActiveOwner(membership);
-            if (!canRemoveOwner)
+            var canRemoveLeadershipMember = await HasAnotherActiveLeadershipMemberAsync(membership);
+            if (!canRemoveLeadershipMember)
             {
                 return RepositoryResult<bool>.Failure(
-                    ApiErrors.Invalid("At least one active owner is required."));
+                    ApiErrors.Invalid("At least one active owner or admin is required."));
             }
         }
 
@@ -358,13 +371,13 @@ public sealed class MembershipRepository : IMembershipRepository
         {
             return RepositoryResult<bool>.Failure(ApiErrors.NotFound("Membership"));
         }
-        if (membership.Role == MembershipRole.Owner)
+        if (MembershipRolePolicy.IsLeadershipRole(membership.Role))
         {
-            var canLeaveOwner = await HasAnotherActiveOwner(membership);
-            if (!canLeaveOwner)
+            var canLeaveLeadershipRole = await HasAnotherActiveLeadershipMemberAsync(membership);
+            if (!canLeaveLeadershipRole)
             {
                 return RepositoryResult<bool>.Failure(
-                    ApiErrors.Invalid("At least one active owner is required."));
+                    ApiErrors.Invalid("At least one active owner or admin is required."));
             }
         }
 
@@ -373,12 +386,12 @@ public sealed class MembershipRepository : IMembershipRepository
         return RepositoryResult<bool>.Success(true);
     }
 
-    private async Task<bool> HasAnotherActiveOwner(
+    private async Task<bool> HasAnotherActiveLeadershipMemberAsync(
         Membership membership)
     {
         return await _dbContext.Memberships.AnyAsync(other =>
             other.CommunityId == membership.CommunityId
-            && other.Role == MembershipRole.Owner
+            && (other.Role == MembershipRole.Owner || other.Role == MembershipRole.Admin)
             && other.UserId != membership.UserId
             && other.Status == MembershipStatus.Active);
     }

@@ -21,6 +21,7 @@ public sealed class Membership
 public enum MembershipRole
 {
     Owner,
+    Admin,
     Member,
     Moderator
 }

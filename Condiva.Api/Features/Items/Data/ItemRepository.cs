@@ -375,8 +375,7 @@ public sealed class ItemRepository : IItemRepository
 
     private static bool CanManageCommunity(Membership membership)
     {
-        return membership.Role == MembershipRole.Owner
-            || membership.Role == MembershipRole.Moderator;
+        return MembershipRolePolicy.CanModerateContent(membership.Role);
     }
 
     private static string? Normalize(string? value)

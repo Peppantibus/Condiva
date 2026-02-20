@@ -1,132 +1,115 @@
-# Backend Tasks Tracker
+# Backend Tasks Tracker (RBAC)
 
-Fonte: `Condiva.Api/BE_Tickets.md` + `Condiva.Api/NeedFromBE.md`
+Source of truth: `Condiva.Api/BE_Tasks.md`
 
-Regola stato:
-- `TODO`: non completato o parzialmente completato
-- `DONE`: completato e committato
+## Working rules
 
-## P0 Security, Auth, Authorization
+- One task = one commit.
+- Status values allowed: `TODO`, `DONE`.
+- A task can be marked `DONE` only when all acceptance criteria are satisfied and tests pass.
+- Do not mix multiple task IDs in one commit.
 
-- [x] Server-authoritative identity on write operations
-  - Status: DONE
-  - Scope: create/update su item, request, offer, loan, membership
-  - Note: derivare sempre identity da token/sessione, no trust su `*UserId`
+## Commit convention
 
-- [x] Authorization matrix + allowedActions
-  - Status: DONE
-  - Scope: communities, members, requests, offers, items, loans
-  - Note: enforcement server-side + `allowedActions` coerenti in list/detail
+- Suggested format: `feat(rbac): BE-RBAC-0X <short-description>`
+- Example: `feat(rbac): BE-RBAC-02 add Admin membership role`
 
-- [x] Standard error envelope
-  - Status: DONE
-  - Scope: tutti gli endpoint
-  - Note: shape unica `error.code`, `error.message`, `error.fields`, `traceId`
+## Task list
 
-- [x] CSRF/session contract hardening
-  - Status: DONE
-  - Scope: cookie auth/session, rotazione CSRF, CORS allowlist
+### BE-RBAC-01 - Official role/permission matrix
+- Status: TODO
+- Commit: excluded from commit plan (user request)
+- Scope:
+  - Add `Condiva.Api/RBAC_MATRIX.md`.
+  - Define canonical permission set in code (single source).
+  - Ensure no auth decision is delegated to FE.
+- Acceptance:
+  - [ ] `RBAC_MATRIX.md` present and aligned with API behavior.
+  - [ ] Canonical permission identifiers centralized in backend code.
+  - [ ] Backend-only authorization decisions.
 
-- [x] Idempotency-Key on critical POST
-  - Status: DONE
-  - Scope: create item/request/offer/loan, join community, rotate invite
+### BE-RBAC-02 - Add Admin role to membership domain
+- Status: TODO
+- Commit: `feat(rbac): BE-RBAC-02 add Admin role to membership`
+- Scope:
+  - Extend membership role enum/model/validation/migrations.
+  - Update role update endpoint and OpenAPI enum.
+  - Preserve compatibility with existing roles (`Owner`, `Moderator`, `Member`).
+- Acceptance:
+  - [x] API accepts/persists `Admin`.
+  - [ ] OpenAPI shows updated role enum.
+  - [x] No undocumented breaking changes.
 
-## P1 Performance e query model
+### BE-RBAC-03 - Member detail endpoint with effective permissions
+- Status: TODO
+- Commit: `feat(rbac): BE-RBAC-03 add member detail endpoint with permissions`
+- Scope:
+  - Add `GET /api/communities/{communityId}/members/{memberId}`.
+  - Response includes: user summary, role, status, joinedAt, reputationSummary,
+    effectivePermissions (target), allowedActions (caller on target).
+- Acceptance:
+  - [x] `effectivePermissions` and `allowedActions` are explicit and distinct.
+  - [x] `403`/`404` behavior is coherent and tested.
+  - [ ] Swagger response example added.
 
-- [x] Members endpoint per community, paginato e filtrabile
-  - Status: DONE
-  - Scope: `GET /api/communities/{id}/members` con `page,pageSize,search,role,status`
+### BE-RBAC-04 - Align members list payload
+- Status: DONE
+- Commit: `feat(rbac): BE-RBAC-04 align members list payload`
+- Scope:
+  - Ensure `GET /api/communities/{id}/members` includes:
+    role, status, reputationSummary, effectivePermissions, allowedActions.
+  - Keep pagination/filter performance.
+- Acceptance:
+  - [x] FE can render role/permission state without extra optional calls.
+  - [x] Pagination/filtering behavior remains stable and performant.
 
-- [x] Request offers include item summary
-  - Status: DONE
-  - Scope: `GET /api/requests/{id}/offers` include item summary completo
+### BE-RBAC-05 - Server-side enforcement on critical endpoints
+- Status: DONE
+- Commit: `feat(rbac): BE-RBAC-05 enforce RBAC on critical operations`
+- Scope:
+  - Requests moderation/delete: `Moderator+` for community moderation,
+    `Member` only on own resources.
+  - Membership role updates: restricted by matrix (Admin/Owner policy).
+  - Items/Loans/Offers rules aligned to RBAC matrix.
+- Acceptance:
+  - [x] `Admin` can perform all matrix-allowed actions.
+  - [x] `Moderator` can moderate/delete community requests as defined.
+  - [x] `Member` cannot operate on others' resources outside permissions.
+  - [x] `401`/`403` are consistent.
 
-- [x] Dashboard aggregate endpoint
-  - Status: DONE
-  - Scope: `GET /api/dashboard/{communityId}` con preview e counters
+### BE-RBAC-06 - Role-change security guard rails
+- Status: TODO
+- Commit: `feat(rbac): BE-RBAC-06 harden role-change guard rails`
+- Scope:
+  - Block unauthorized self-escalation.
+  - Prevent removing/downgrading last admin/owner in a community.
+  - Make role updates transaction-safe.
+- Acceptance:
+  - [ ] Illegitimate attempts return `403` with clear error code.
+  - [x] Community always has required admin/owner integrity.
 
-- [x] Server-side filtering for items/loans/my views
-  - Status: DONE
-  - Scope: filtri owner/status/category/search/sort + perspective loans
+### BE-RBAC-07 - Audit logs for moderation and role changes
+- Status: TODO
+- Commit: `feat(rbac): BE-RBAC-07 add audit logs for critical authz actions`
+- Scope:
+  - Persist audit records for role change, moderation delete, member suspension/removal.
+  - Required fields: actorUserId, targetUserId, communityId, action, oldValue, newValue, timestamp.
+- Acceptance:
+  - [ ] Audit is persisted for each critical action.
+  - [ ] Integration tests cover main audit flows.
 
-- [x] My communities endpoint with membership context
-  - Status: DONE
-  - Scope: endpoint unico community + membership role/status/permissions
+### BE-RBAC-08 - Authorization test matrix + OpenAPI update
+- Status: TODO
+- Commit: `feat(rbac): BE-RBAC-08 add authz matrix tests and refresh OpenAPI`
+- Scope:
+  - Integration tests for `Admin`/`Moderator`/`Member` across key endpoints.
+  - Regenerate/validate OpenAPI with new fields/endpoints.
+  - Handoff note for FE with new payload mappings.
+- Acceptance:
+  - [ ] Authz suite green for role matrix.
+  - [ ] OpenAPI/client generation works without FE manual patching.
 
-- [x] Notifications enriched payload + proper unread-count
-  - Status: DONE
-  - Scope: unread-count typed + notifications con actor/entitySummary/target
+## Progress log
 
-- [x] Media resolution strategy for list cards
-  - Status: DONE
-  - Scope: signed `imageUrl` in list o endpoint batch resolve
-
-- [x] Ensure avatarUrl population in UserSummary everywhere
-  - Status: DONE
-  - Scope: tutti gli endpoint con `UserSummaryDto`
-
-## P2 Contract consistency e platform quality
-
-- [x] Canonical auth response shape
-  - Status: DONE
-  - Scope: login, google, refresh response uniforme
-
-- [x] Uniform pagination/sorting/date contracts
-  - Status: DONE
-  - Scope: tutte le list response con schema unico + date ISO UTC
-
-- [x] Concurrency control for updates
-  - Status: DONE
-  - Scope: ETag/If-Match o rowVersion su update/delete principali
-
-- [x] OpenAPI fidelity and SDK validation pipeline
-  - Status: DONE
-  - Scope: spec/runtime alignment + check pipeline client generation
-
-## Post-delivery stabilization (run test)
-
-- [x] Auth session expiry derived from runtime token payload
-  - Status: DONE
-  - Scope: fallback `expiresAt/expiresIn` extraction from JWT `exp` quando payload tipizzato non espone `ExpiresAt`
-
-- [x] EF query stability for notifications and community members
-  - Status: DONE
-  - Scope: rimozione pattern query che in .NET 10 causava `InternalServerError` su `Contains` + materializzazione dizionari
-
-- [x] UTC serialization parity for minimal APIs
-  - Status: DONE
-  - Scope: allineamento converter UTC anche su `HttpJsonOptions` (endpoint minimal)
-
-- [x] Search filtering consistency on items
-  - Status: DONE
-  - Scope: filtro `search` case-insensitive lato repository
-
-- [x] Regression tests aligned to effective runtime contract
-  - Status: DONE
-  - Scope: test auth cookie policy da config runtime + `POST /api/communities` atteso `201 Created`
-
-## Progress Log
-
-- Inizio tracciamento: 2026-02-17
-- 2026-02-17: completato `Server-authoritative identity on write operations` (hardening write path + test anti-impersonificazione).
-- 2026-02-17: completato `Authorization matrix + allowedActions` (allowedActions su list/detail + 403 su permessi mutativi mancanti).
-- 2026-02-17: completato `Standard error envelope` (envelope uniforme + traceId + fields validazione + handler globale 500).
-- 2026-02-17: completato `CSRF/session contract hardening` (error envelope uniforme nel middleware CSRF, logout protetto da CSRF, endpoint rotazione token CSRF, CORS origin allowlist centralizzata).
-- 2026-02-17: completato `Idempotency-Key on critical POST` (middleware su POST critici con replay response persistita, conflitto su payload differente, CORS aggiornato per header Idempotency-Key).
-- 2026-02-17: completato `Members endpoint per community, paginato e filtrabile` (nuovo `GET /api/communities/{id}/members` con filtri `search/role/status`, payload user+reputation, paginazione server-side e test coverage dedicata).
-- 2026-02-17: completato `Request offers include item summary` (DTO offer esteso con `item` embedded, include query `Item+Owner` su request offers e test payload aggiornati).
-- 2026-02-17: completato `Dashboard aggregate endpoint` (nuovo `GET /api/dashboard/{communityId}` con `openRequestsPreview`, `availableItemsPreview`, `myRequestsPreview`, `counters` e test payload/authorization).
-- 2026-02-17: completato `Server-side filtering for items/loans/my views` (items con filtri `owner/status/category/search/sort` + paging opzionale, loans con filtro `perspective=lent|borrowed`, test di filtro/paging aggiornati).
-- 2026-02-17: completato `My communities endpoint with membership context` (nuovo `GET /api/memberships/me/communities-context` con dati community + ruolo/stato membership + action sets).
-- 2026-02-17: completato `Notifications enriched payload + proper unread-count` (`GET /api/notifications/unread-count` typed con `unreadCount`, `GET /api/notifications` arricchito con `message`, `actor`, `entitySummary`, `target` e test coverage dedicata).
-- 2026-02-17: completato `Media resolution strategy for list cards` (nuovo `POST /api/storage/resolve` batch per firmare piu `objectKeys` in una chiamata, dedup input, validazioni key e response typed con `items[]` + `expiresIn`).
-- 2026-02-17: completato `Ensure avatarUrl population in UserSummary everywhere` (mapper esteso con accesso servizi DI per firmare avatar URL da `ProfileImageKey` su items/requests/offers/loans/memberships + actor notifications, con test payload aggiornati).
-- 2026-02-17: completato `Canonical auth response shape` (login/google/refresh allineati su response unica `AuthSessionResponseDto` con `accessToken`, `expiresIn`, `tokenType`, `expiresAt`, `refreshTokenExpiresAt`, `user`; test auth aggiornati sul nuovo contratto).
-- 2026-02-17: completato `Uniform pagination/sorting/date contracts` (list endpoint uniformati su `PagedResponseDto` con `items/page/pageSize/total/sort/order`, ordinamenti di default esplicitati, converter JSON UTC per `DateTime`/`DateTime?`, notifiche allineate allo stesso contratto e test payload aggiornati su response paginate).
-- 2026-02-17: completato `Concurrency control for updates` (ETag deterministico su detail/create/update delle entita principali, supporto `If-Match` su `PUT/DELETE` per communities/items/requests/offers/loans/memberships/events con `412 precondition_failed` su mismatch, e test API aggiunti per header ETag + conflitto optimistic concurrency).
-- 2026-02-17: completato `OpenAPI fidelity and SDK validation pipeline` (nuovi test contrattuali su `/swagger/v1/swagger.json` per unread-count typed, schema paginato uniforme e auth response canonica; pipeline CI estesa con smoke step che estrae la spec runtime e valida generazione SDK C# via NSwag).
-- 2026-02-17: completato `Auth session expiry derived from runtime token payload` (fallback JWT `exp` per calcolo `expiresAt/expiresIn` su login/refresh quando il DTO libreria non espone `ExpiresAt`).
-- 2026-02-17: completato `EF query stability for notifications and community members` (eliminati crash runtime su query LINQ/materializzazione che producevano `500` in `GET /api/notifications` e `GET /api/communities/{id}/members`).
-- 2026-02-17: completato `UTC serialization parity for minimal APIs` (converter UTC applicato anche alle response minimal APIs).
-- 2026-02-17: completato `Search filtering consistency on items` (search case-insensitive su `GET /api/items` con filtri owner/status/category/search/paging).
-- 2026-02-17: completato `Regression tests aligned to effective runtime contract` (aggiornati test su cookie policy configurata e `201 Created` per create community con CSRF valido; suite test verde).
+- 2026-02-17: tracker initialized from `BE_Tasks.md`; all RBAC tasks set to TODO pending implementation.
+- 2026-02-17: implemented Admin role, centralized role policy, effective permissions on members list/detail, and hardened role-change safeguards. Added integration tests for Admin and member-detail permissions.
