@@ -52,7 +52,34 @@ public class CondivaDbContext : DbContext
         modelBuilder.Entity<Community>().HasKey(community => community.Id);
         modelBuilder.Entity<Membership>().HasKey(membership => membership.Id);
         modelBuilder.Entity<Item>().HasKey(item => item.Id);
-        modelBuilder.Entity<Request>().HasKey(request => request.Id);
+        var requestEntity = modelBuilder.Entity<Request>();
+        requestEntity.HasKey(request => request.Id);
+        requestEntity
+            .HasIndex(request => new
+            {
+                request.CommunityId,
+                request.Status,
+                request.CreatedAt,
+                request.Id
+            })
+            .IsDescending(false, false, true, true);
+        requestEntity
+            .HasIndex(request => new
+            {
+                request.CommunityId,
+                request.RequesterUserId,
+                request.Status,
+                request.CreatedAt,
+                request.Id
+            })
+            .IsDescending(false, false, false, true, true);
+        requestEntity
+            .HasIndex(request => new
+            {
+                request.CommunityId,
+                request.Status,
+                request.NeededTo
+            });
         modelBuilder.Entity<Offer>().HasKey(offer => offer.Id);
         modelBuilder.Entity<Loan>().HasKey(loan => loan.Id);
         modelBuilder.Entity<Event>().HasKey(evt => evt.Id);
