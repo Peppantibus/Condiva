@@ -1,5 +1,4 @@
-using Condiva.Api.Features.Items.Dtos;
-using Condiva.Api.Features.Requests.Dtos;
+using Condiva.Api.Common.Dtos;
 
 namespace Condiva.Api.Features.Dashboard.Dtos;
 
@@ -8,8 +7,17 @@ public sealed record DashboardCountersDto(
     int AvailableItemsTotal,
     int MyRequestsTotal);
 
+public sealed record DashboardPreviewItemDto(
+    string Id,
+    string Title,
+    string Status,
+    UserSummaryDto Owner,
+    DateTime Date,
+    string? ThumbnailUrl,
+    string[]? AllowedActions = null);
+
 public sealed record DashboardSummaryDto(
-    IReadOnlyList<RequestListItemDto> OpenRequestsPreview,
-    IReadOnlyList<ItemListItemDto> AvailableItemsPreview,
-    IReadOnlyList<RequestListItemDto> MyRequestsPreview,
+    IReadOnlyList<DashboardPreviewItemDto> OpenRequestsPreview,
+    IReadOnlyList<DashboardPreviewItemDto> AvailableItemsPreview,
+    IReadOnlyList<DashboardPreviewItemDto> MyRequestsPreview,
     DashboardCountersDto Counters);

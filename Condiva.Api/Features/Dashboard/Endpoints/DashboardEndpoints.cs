@@ -7,6 +7,7 @@ using Condiva.Api.Features.Items.Models;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Requests.Dtos;
 using Condiva.Api.Features.Requests.Models;
+using Condiva.Api.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -17,6 +18,7 @@ public static class DashboardEndpoints
     private const int DefaultPreviewSize = 5;
     private const int MaxPreviewSize = 20;
     private const int MaxCommunityIdLength = 64;
+    private const int ThumbnailPresignTtlSeconds = 300;
 
     public static IEndpointRouteBuilder MapDashboardEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -29,7 +31,8 @@ public static class DashboardEndpoints
             int? previewSize,
             ClaimsPrincipal user,
             CondivaDbContext dbContext,
-            IMapper mapper) =>
+            IMapper mapper,
+            IR2StorageService storageService) =>
         {
             var actorUserId = CurrentUser.GetUserId(user);
             if (string.IsNullOrWhiteSpace(actorUserId))
@@ -98,18 +101,42 @@ public static class DashboardEndpoints
                 {
                     AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)
                 })
+                .Select(request => new DashboardPreviewItemDto(
+                    request.Id,
+                    request.Title,
+                    request.Status,
+                    request.Owner,
+                    request.CreatedAt,
+                    ResolveThumbnailUrl(request.ImageKey, storageService),
+                    request.AllowedActions))
                 .ToList();
             var availableItemsPreview = availableItems
                 .Select(item => mapper.Map<Item, ItemListItemDto>(item) with
                 {
                     AllowedActions = AllowedActionsPolicy.ForItem(item, actorUserId, actorMembership.Role)
                 })
+                .Select(item => new DashboardPreviewItemDto(
+                    item.Id,
+                    item.Name,
+                    item.Status,
+                    item.Owner,
+                    item.CreatedAt,
+                    ResolveThumbnailUrl(item.ImageKey, storageService),
+                    item.AllowedActions))
                 .ToList();
             var myRequestsPreview = myRequests
                 .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
                 {
                     AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorMembership.Role)
                 })
+                .Select(request => new DashboardPreviewItemDto(
+                    request.Id,
+                    request.Title,
+                    request.Status,
+                    request.Owner,
+                    request.CreatedAt,
+                    ResolveThumbnailUrl(request.ImageKey, storageService),
+                    request.AllowedActions))
                 .ToList();
 
             var payload = new DashboardSummaryDto(
@@ -150,5 +177,12 @@ public static class DashboardEndpoints
         return communityId.Length > MaxCommunityIdLength
             ? ApiErrors.Invalid("Invalid communityId.")
             : null;
+    }
+
+    private static string? ResolveThumbnailUrl(string? imageKey, IR2StorageService storageService)
+    {
+        return string.IsNullOrWhiteSpace(imageKey)
+            ? null
+            : storageService.GeneratePresignedGetUrl(imageKey, ThumbnailPresignTtlSeconds);
     }
 }
