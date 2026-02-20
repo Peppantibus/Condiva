@@ -21,6 +21,7 @@ namespace Condiva.Api.Features.Requests.Endpoints;
 public static class RequestsEndpoints
 {
     private const int DownloadPresignTtlSeconds = 300;
+    private const int ExpiringSoonWindowHours = 72;
 
     public static IEndpointRouteBuilder MapRequestsEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -89,6 +90,53 @@ public static class RequestsEndpoints
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
+
+        group.MapGet("/counts", async (
+            string? communityId,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            if (string.IsNullOrWhiteSpace(communityId))
+            {
+                return ApiErrors.Required(nameof(communityId));
+            }
+
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var isMember = await dbContext.Memberships.AsNoTracking().AnyAsync(membership =>
+                membership.CommunityId == communityId
+                && membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active);
+            if (!isMember)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var now = DateTime.UtcNow;
+            var expiringBefore = now.AddHours(ExpiringSoonWindowHours);
+            var counts = await dbContext.Requests
+                .AsNoTracking()
+                .Where(request => request.CommunityId == communityId)
+                .GroupBy(_ => 1)
+                .Select(group => new RequestCountsDto(
+                    group.Count(request => request.Status == RequestStatus.Open),
+                    group.Count(request =>
+                        request.Status == RequestStatus.Open
+                        && request.RequesterUserId == actorUserId),
+                    group.Count(request =>
+                        request.Status == RequestStatus.Open
+                        && request.NeededTo.HasValue
+                        && request.NeededTo.Value >= now
+                        && request.NeededTo.Value <= expiringBefore)))
+                .FirstOrDefaultAsync();
+
+            return Results.Ok(counts ?? new RequestCountsDto(0, 0, 0));
+        })
+            .Produces<RequestCountsDto>(StatusCodes.Status200OK);
 
         group.MapGet("/{id}", async (
             string id,

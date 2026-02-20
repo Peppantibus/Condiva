@@ -389,6 +389,31 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetRequestCounts_ReturnsAggregatedBadges()
+    {
+        var actorId = $"requests-counts-actor-{Guid.NewGuid():N}";
+        var otherId = $"requests-counts-other-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(actorId, otherId);
+        var soon = DateTime.UtcNow.AddHours(24);
+        var later = DateTime.UtcNow.AddDays(10);
+
+        await SeedRequestAsync(communityId, actorId, RequestStatus.Open, soon);
+        await SeedRequestAsync(communityId, actorId, RequestStatus.Open, later);
+        await SeedRequestAsync(communityId, otherId, RequestStatus.Open, soon);
+        await SeedRequestAsync(communityId, actorId, RequestStatus.Closed, soon);
+
+        using var client = CreateClientWithToken(actorId);
+        var response = await client.GetAsync($"/api/requests/counts?communityId={communityId}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<RequestCountsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(3, payload!.Open);
+        Assert.Equal(2, payload.MyOpen);
+        Assert.Equal(2, payload.ExpiringSoon);
+    }
+
+    [Fact]
     public async Task GetRequestsMe_IncludesCommunitySummary()
     {
         var requesterId = $"requests-me-{Guid.NewGuid():N}";
@@ -688,7 +713,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     private async Task<string> SeedRequestAsync(
         string communityId,
         string requesterId,
-        RequestStatus status = RequestStatus.Open)
+        RequestStatus status = RequestStatus.Open,
+        DateTime? neededTo = null)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
@@ -701,7 +727,8 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             Title = "Need item",
             Description = "Desc",
             Status = status,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            NeededTo = neededTo
         };
         dbContext.Requests.Add(request);
         await dbContext.SaveChangesAsync();
