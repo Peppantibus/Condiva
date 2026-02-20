@@ -4,6 +4,8 @@ using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Requests.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Requests.Data;
@@ -11,35 +13,124 @@ namespace Condiva.Api.Features.Requests.Data;
 public sealed class RequestRepository : IRequestRepository
 {
     private const int MaxDailyRequestsPerUser = 3;
+    private const int DefaultCursorPageSize = 20;
+    private const int MaxCursorPageSize = 100;
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromHours(8);
 
-    public async Task<RepositoryResult<IReadOnlyList<Request>>> GetAllAsync(
+    public async Task<RepositoryResult<CursorPagedResult<Request>>> GetListAsync(
         string communityId,
+        string? status,
+        string? cursor,
+        int? pageSize,
+        string? sort,
         ClaimsPrincipal user,
         CondivaDbContext dbContext)
     {
         var actorUserId = CurrentUser.GetUserId(user);
         if (string.IsNullOrWhiteSpace(actorUserId))
         {
-            return RepositoryResult<IReadOnlyList<Request>>.Failure(ApiErrors.Unauthorized());
+            return RepositoryResult<CursorPagedResult<Request>>.Failure(ApiErrors.Unauthorized());
         }
         if (string.IsNullOrWhiteSpace(communityId))
         {
-            return RepositoryResult<IReadOnlyList<Request>>.Failure(ApiErrors.Required(nameof(communityId)));
+            return RepositoryResult<CursorPagedResult<Request>>.Failure(ApiErrors.Required(nameof(communityId)));
         }
 
-        var requests = await dbContext.Requests
+        var isMember = await dbContext.Memberships.AnyAsync(membership =>
+            membership.UserId == actorUserId
+            && membership.Status == MembershipStatus.Active
+            && membership.CommunityId == communityId);
+        if (!isMember)
+        {
+            return RepositoryResult<CursorPagedResult<Request>>.Failure(
+                ApiErrors.Forbidden("User is not a member of the community."));
+        }
+
+        var size = pageSize.GetValueOrDefault(DefaultCursorPageSize);
+        if (size <= 0 || size > MaxCursorPageSize)
+        {
+            return RepositoryResult<CursorPagedResult<Request>>.Failure(
+                ApiErrors.Invalid("Invalid pageSize."));
+        }
+
+        if (!TryParseSort(sort, out var isDescending))
+        {
+            return RepositoryResult<CursorPagedResult<Request>>.Failure(
+                ApiErrors.Invalid("Invalid sort. Use createdAt:desc or createdAt:asc."));
+        }
+
+        RequestStatus? statusFilter = null;
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!Enum.TryParse<RequestStatus>(status.Trim(), true, out var parsedStatus))
+            {
+                return RepositoryResult<CursorPagedResult<Request>>.Failure(
+                    ApiErrors.Invalid("Invalid status filter."));
+            }
+
+            statusFilter = parsedStatus;
+        }
+
+        CursorToken? cursorToken = null;
+        var normalizedCursor = string.IsNullOrWhiteSpace(cursor) ? null : cursor.Trim();
+        if (!string.IsNullOrWhiteSpace(normalizedCursor))
+        {
+            if (!TryParseCursor(normalizedCursor, out var parsedToken))
+            {
+                return RepositoryResult<CursorPagedResult<Request>>.Failure(
+                    ApiErrors.Invalid("Invalid cursor."));
+            }
+
+            cursorToken = parsedToken;
+        }
+
+        var baseQuery = dbContext.Requests
+            .AsNoTracking()
             .Include(request => request.Community)
             .Include(request => request.RequesterUser)
-            .Where(request => request.CommunityId == communityId)
-            .Where(request => dbContext.Memberships.Any(membership =>
-                membership.UserId == actorUserId
-                && membership.Status == MembershipStatus.Active
-                && membership.CommunityId == communityId))
-            .OrderByDescending(request => request.CreatedAt)
-            .ThenBy(request => request.Id)
+            .Where(request => request.CommunityId == communityId);
+
+        if (statusFilter.HasValue)
+        {
+            baseQuery = baseQuery.Where(request => request.Status == statusFilter.Value);
+        }
+
+        var pageQuery = baseQuery;
+        if (cursorToken is not null)
+        {
+            if (isDescending)
+            {
+                pageQuery = pageQuery.Where(request =>
+                    request.CreatedAt < cursorToken.Value.CreatedAt
+                    || (request.CreatedAt == cursorToken.Value.CreatedAt
+                        && string.Compare(request.Id, cursorToken.Value.Id) < 0));
+            }
+            else
+            {
+                pageQuery = pageQuery.Where(request =>
+                    request.CreatedAt > cursorToken.Value.CreatedAt
+                    || (request.CreatedAt == cursorToken.Value.CreatedAt
+                        && string.Compare(request.Id, cursorToken.Value.Id) > 0));
+            }
+        }
+
+        pageQuery = isDescending
+            ? pageQuery.OrderByDescending(request => request.CreatedAt).ThenByDescending(request => request.Id)
+            : pageQuery.OrderBy(request => request.CreatedAt).ThenBy(request => request.Id);
+
+        var total = await baseQuery.CountAsync();
+        var pageItems = await pageQuery
+            .Take(size + 1)
             .ToListAsync();
-        return RepositoryResult<IReadOnlyList<Request>>.Success(requests);
+
+        var hasMore = pageItems.Count > size;
+        var items = hasMore ? pageItems.Take(size).ToList() : pageItems;
+        var nextCursor = hasMore
+            ? CreateCursor(items[^1].CreatedAt, items[^1].Id)
+            : null;
+
+        return RepositoryResult<CursorPagedResult<Request>>.Success(
+            new CursorPagedResult<Request>(items, size, total, normalizedCursor, nextCursor));
     }
 
     public async Task<RepositoryResult<Request>> GetByIdAsync(
@@ -403,6 +494,78 @@ public sealed class RequestRepository : IRequestRepository
         return value.Trim().ToLowerInvariant();
     }
 
+    private static bool TryParseSort(string? sort, out bool isDescending)
+    {
+        var normalized = string.IsNullOrWhiteSpace(sort)
+            ? "createdat:desc"
+            : sort.Trim().ToLowerInvariant();
+
+        switch (normalized)
+        {
+            case "createdat:desc":
+                isDescending = true;
+                return true;
+            case "createdat:asc":
+                isDescending = false;
+                return true;
+            default:
+                isDescending = true;
+                return false;
+        }
+    }
+
+    private static string CreateCursor(DateTime createdAt, string id)
+    {
+        var payload = $"{NormalizeCursorDate(createdAt)}|{id}";
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(payload));
+    }
+
+    private static bool TryParseCursor(string cursor, out CursorToken token)
+    {
+        token = default;
+
+        byte[] data;
+        try
+        {
+            data = Convert.FromBase64String(cursor);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        var payload = Encoding.UTF8.GetString(data);
+        var parts = payload.Split('|', 2);
+        if (parts.Length != 2)
+        {
+            return false;
+        }
+
+        if (!DateTime.TryParse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var createdAt))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(parts[1]))
+        {
+            return false;
+        }
+
+        token = new CursorToken(createdAt, parts[1]);
+        return true;
+    }
+
+    private static string NormalizeCursorDate(DateTime value)
+    {
+        var normalized = value.Kind == DateTimeKind.Utc
+            ? value
+            : value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+                : value.ToUniversalTime();
+
+        return normalized.ToString("O", CultureInfo.InvariantCulture);
+    }
+
     private static async Task<RepositoryResult<Request>> EnsureCommunityMemberAsync(
         string communityId,
         string actorUserId,
@@ -426,4 +589,6 @@ public sealed class RequestRepository : IRequestRepository
     {
         return MembershipRolePolicy.CanModerateContent(membership.Role);
     }
+
+    private readonly record struct CursorToken(DateTime CreatedAt, string Id);
 }

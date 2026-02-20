@@ -31,6 +31,10 @@ public static class RequestsEndpoints
 
         group.MapGet("/", async (
             string? communityId,
+            string? status,
+            string? cursor,
+            int? pageSize,
+            string? sort,
             ClaimsPrincipal user,
             IRequestRepository repository,
             IMapper mapper,
@@ -46,7 +50,14 @@ public static class RequestsEndpoints
                 return ApiErrors.Unauthorized();
             }
 
-            var result = await repository.GetAllAsync(communityId, user, dbContext);
+            var result = await repository.GetListAsync(
+                communityId,
+                status,
+                cursor,
+                pageSize,
+                sort,
+                user,
+                dbContext);
             if (!result.IsSuccess)
             {
                 return result.Error!;
@@ -59,18 +70,22 @@ public static class RequestsEndpoints
             }
 
             var mapped = result.Data!
+                .Items
                 .Select(request => mapper.Map<Request, RequestListItemDto>(request) with
                 {
                     AllowedActions = AllowedActionsPolicy.ForRequest(request, actorUserId, actorRole.Value)
                 })
                 .ToList();
+            var (sortField, sortOrder) = ParseSort(sort);
             var payload = new PagedResponseDto<RequestListItemDto>(
                 mapped,
                 1,
-                mapped.Count,
-                mapped.Count,
-                "createdAt",
-                "desc");
+                result.Data.PageSize,
+                result.Data.Total,
+                sortField,
+                sortOrder,
+                result.Data.Cursor,
+                result.Data.NextCursor);
             return Results.Ok(payload);
         })
             .Produces<PagedResponseDto<RequestListItemDto>>(StatusCodes.Status200OK);
@@ -622,6 +637,19 @@ public static class RequestsEndpoints
         {
             logger.LogWarning(ex, "Failed deleting previous request image from R2. key: {ObjectKey}", previousObjectKey);
         }
+    }
+
+    private static (string Sort, string Order) ParseSort(string? sort)
+    {
+        var normalized = string.IsNullOrWhiteSpace(sort)
+            ? "createdat:desc"
+            : sort.Trim().ToLowerInvariant();
+
+        return normalized switch
+        {
+            "createdat:asc" => ("createdAt", "asc"),
+            _ => ("createdAt", "desc")
+        };
     }
 
     public sealed record RequestImageResponseDto(string ObjectKey, string DownloadUrl);

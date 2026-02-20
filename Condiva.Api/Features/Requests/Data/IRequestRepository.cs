@@ -6,8 +6,12 @@ namespace Condiva.Api.Features.Requests.Data;
 
 public interface IRequestRepository
 {
-    Task<RepositoryResult<IReadOnlyList<Request>>> GetAllAsync(
+    Task<RepositoryResult<CursorPagedResult<Request>>> GetListAsync(
         string communityId,
+        string? status,
+        string? cursor,
+        int? pageSize,
+        string? sort,
         ClaimsPrincipal user,
         CondivaDbContext dbContext);
     Task<RepositoryResult<Request>> GetByIdAsync(

@@ -351,6 +351,44 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task GetRequests_WithCursorPaginationStatusAndSort_ReturnsNextPage()
+    {
+        var requesterId = $"requests-cursor-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+
+        await SeedRequestAsync(communityId, requesterId, RequestStatus.Open);
+        await SeedRequestAsync(communityId, requesterId, RequestStatus.Open);
+        await SeedRequestAsync(communityId, requesterId, RequestStatus.Open);
+        await SeedRequestAsync(communityId, requesterId, RequestStatus.Closed);
+
+        using var client = CreateClientWithToken(requesterId);
+
+        var firstPageResponse = await client.GetAsync(
+            $"/api/requests?communityId={communityId}&status=Open&pageSize=2&sort=createdAt:desc");
+        Assert.Equal(HttpStatusCode.OK, firstPageResponse.StatusCode);
+
+        var firstPage = await firstPageResponse.Content.ReadFromJsonAsync<PagedResponseDto<RequestListItemDto>>();
+        Assert.NotNull(firstPage);
+        Assert.Equal(2, firstPage!.Items.Count);
+        Assert.Equal(2, firstPage.PageSize);
+        Assert.Equal("createdAt", firstPage.Sort);
+        Assert.Equal("desc", firstPage.Order);
+        Assert.All(firstPage.Items, request => Assert.Equal("Open", request.Status));
+        Assert.False(string.IsNullOrWhiteSpace(firstPage.NextCursor));
+
+        var firstPageIds = firstPage.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var secondPageResponse = await client.GetAsync(
+            $"/api/requests?communityId={communityId}&status=Open&pageSize=2&sort=createdAt:desc&cursor={Uri.EscapeDataString(firstPage.NextCursor!)}");
+        Assert.Equal(HttpStatusCode.OK, secondPageResponse.StatusCode);
+
+        var secondPage = await secondPageResponse.Content.ReadFromJsonAsync<PagedResponseDto<RequestListItemDto>>();
+        Assert.NotNull(secondPage);
+        Assert.Single(secondPage!.Items);
+        Assert.All(secondPage.Items, request => Assert.Equal("Open", request.Status));
+        Assert.DoesNotContain(secondPage.Items[0].Id, firstPageIds);
+    }
+
+    [Fact]
     public async Task GetRequestsMe_IncludesCommunitySummary()
     {
         var requesterId = $"requests-me-{Guid.NewGuid():N}";
@@ -647,7 +685,10 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
         return item.Id;
     }
 
-    private async Task<string> SeedRequestAsync(string communityId, string requesterId)
+    private async Task<string> SeedRequestAsync(
+        string communityId,
+        string requesterId,
+        RequestStatus status = RequestStatus.Open)
     {
         using var scope = _factory.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
@@ -659,7 +700,7 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
             RequesterUserId = requesterId,
             Title = "Need item",
             Description = "Desc",
-            Status = RequestStatus.Open,
+            Status = status,
             CreatedAt = DateTime.UtcNow
         };
         dbContext.Requests.Add(request);

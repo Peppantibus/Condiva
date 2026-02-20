@@ -6,4 +6,6 @@ public sealed record PagedResponseDto<T>(
     int PageSize,
     int Total,
     string? Sort = null,
-    string? Order = null);
+    string? Order = null,
+    string? Cursor = null,
+    string? NextCursor = null);
