@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
+using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Dashboard.Dtos;
 using Condiva.Api.Features.Items.Dtos;
@@ -557,6 +558,37 @@ public sealed class ApiPayloadTests : IClassFixture<CondivaApiFactory>
 
         var secondResponse = await client.SendAsync(secondRequest);
         Assert.Equal(HttpStatusCode.NotModified, secondResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCommunityRolePermissions_AsOwner_ReturnsRolePermissions()
+    {
+        var ownerId = $"role-preview-owner-{Guid.NewGuid():N}";
+        var memberId = $"role-preview-member-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/roles/Moderator/permissions");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<CommunityRolePermissionsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal(communityId, payload!.CommunityId);
+        Assert.Equal("Moderator", payload.Role);
+        Assert.Contains("requests.moderate", payload.Permissions);
+    }
+
+    [Fact]
+    public async Task GetCommunityRolePermissions_AsMember_ReturnsForbidden()
+    {
+        var ownerId = $"role-preview-owner-{Guid.NewGuid():N}";
+        var memberId = $"role-preview-member-{Guid.NewGuid():N}";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.GetAsync($"/api/communities/{communityId}/roles/Moderator/permissions");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await AssertErrorEnvelopeAsync(response, "forbidden");
     }
 
     [Fact]

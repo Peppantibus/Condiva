@@ -418,6 +418,59 @@ public static class CommunitiesEndpoints
         })
             .Produces<PagedResponseDto<CommunityMemberListItemDto>>(StatusCodes.Status200OK);
 
+        group.MapGet("/{id}/roles/{role}/permissions", async (
+            string id,
+            string role,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var normalizedRole = Normalize(role);
+            if (string.IsNullOrWhiteSpace(normalizedRole))
+            {
+                return ApiErrors.Required(nameof(role));
+            }
+
+            if (!Enum.TryParse<MembershipRole>(normalizedRole, true, out var parsedRole))
+            {
+                return ApiErrors.Invalid("Invalid role.");
+            }
+
+            var actorMembership = await dbContext.Memberships.AsNoTracking().FirstOrDefaultAsync(membership =>
+                membership.CommunityId == communityId
+                && membership.UserId == actorUserId
+                && membership.Status == MembershipStatus.Active);
+            if (actorMembership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            if (!MembershipRolePolicy.CanManageMembers(actorMembership.Role))
+            {
+                return ApiErrors.Forbidden("User is not allowed to preview role permissions.");
+            }
+
+            var payload = new CommunityRolePermissionsDto(
+                communityId,
+                parsedRole.ToString(),
+                MembershipPermissionCatalog.ForRole(parsedRole));
+            return Results.Ok(payload);
+        })
+            .Produces<CommunityRolePermissionsDto>(StatusCodes.Status200OK);
+
         group.MapGet("/{id}/requests/feed", async (
             string id,
             string? status,
