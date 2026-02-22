@@ -44,8 +44,7 @@ public static class MembershipPermissionCatalog
 
     private static readonly string[] ModeratorPermissions =
     [
-        Permissions.CommunityRead,
-        Permissions.MembersRead,
+        ..MemberPermissions,
         Permissions.ItemsModerate,
         Permissions.RequestsModerate,
         Permissions.OffersModerate,
