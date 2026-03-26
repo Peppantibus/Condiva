@@ -74,6 +74,59 @@ public sealed class R2StorageService : IR2StorageService, IDisposable
         await _s3Client.DeleteObjectAsync(request, cancellationToken);
     }
 
+    public async Task<int> DeleteAllObjectsAsync(CancellationToken cancellationToken = default)
+    {
+        var deletedObjects = 0;
+
+        while (true)
+        {
+            var listRequest = new ListObjectsV2Request
+            {
+                BucketName = _options.Bucket,
+                MaxKeys = 1000
+            };
+            var listResponse = await _s3Client.ListObjectsV2Async(listRequest, cancellationToken);
+            if (listResponse.S3Objects is null || listResponse.S3Objects.Count == 0)
+            {
+                break;
+            }
+
+            var objectsToDelete = new List<KeyVersion>(listResponse.S3Objects.Count);
+            foreach (var listedObject in listResponse.S3Objects)
+            {
+                if (string.IsNullOrWhiteSpace(listedObject.Key))
+                {
+                    continue;
+                }
+
+                objectsToDelete.Add(new KeyVersion { Key = listedObject.Key });
+            }
+
+            if (objectsToDelete.Count == 0)
+            {
+                break;
+            }
+
+            var deleteRequest = new DeleteObjectsRequest
+            {
+                BucketName = _options.Bucket,
+                Objects = objectsToDelete,
+                Quiet = true
+            };
+            var deleteResponse = await _s3Client.DeleteObjectsAsync(deleteRequest, cancellationToken);
+            if (deleteResponse.DeleteErrors is { Count: > 0 })
+            {
+                var firstError = deleteResponse.DeleteErrors[0];
+                throw new InvalidOperationException(
+                    $"Failed deleting R2 objects. code={firstError.Code}, key={firstError.Key}");
+            }
+
+            deletedObjects += objectsToDelete.Count;
+        }
+
+        return deletedObjects;
+    }
+
     public void Dispose()
     {
         _s3Client.Dispose();

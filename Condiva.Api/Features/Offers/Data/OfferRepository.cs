@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Events.Models;
 using Condiva.Api.Features.Items.Models;
@@ -8,6 +9,7 @@ using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Offers.Models;
 using Condiva.Api.Features.Requests.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 
 namespace Condiva.Api.Features.Offers.Data;
@@ -15,10 +17,17 @@ namespace Condiva.Api.Features.Offers.Data;
 public sealed class OfferRepository : IOfferRepository
 {
     private readonly CondivaDbContext _dbContext;
+    private readonly RequestLifecycleOptions _lifecycleOptions;
+    private readonly IContentModerationService _contentModerationService;
 
-    public OfferRepository(CondivaDbContext dbContext)
+    public OfferRepository(
+        CondivaDbContext dbContext,
+        IOptions<RequestLifecycleOptions> optionsAccessor,
+        IContentModerationService contentModerationService)
     {
         _dbContext = dbContext;
+        _lifecycleOptions = optionsAccessor.Value ?? new RequestLifecycleOptions();
+        _contentModerationService = contentModerationService;
     }
 
     public async Task<RepositoryResult<IReadOnlyList<Offer>>> GetAllAsync(
@@ -209,6 +218,14 @@ public sealed class OfferRepository : IOfferRepository
         {
             body.Id = Guid.NewGuid().ToString();
         }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Message });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
+        }
         var now = DateTime.UtcNow;
         body.CreatedAt = now;
 
@@ -341,6 +358,14 @@ public sealed class OfferRepository : IOfferRepository
                     ApiErrors.Invalid("Request is not open."));
             }
         }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Message });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
+        }
 
         offer.CommunityId = body.CommunityId;
         offer.OffererUserId = body.OffererUserId;
@@ -358,6 +383,91 @@ public sealed class OfferRepository : IOfferRepository
             .FirstOrDefaultAsync(foundOffer => foundOffer.Id == offer.Id);
 
         return RepositoryResult<Offer>.Success(updatedOffer ?? offer);
+    }
+
+    public async Task<RepositoryResult<Offer>> ReopenAsync(
+        string id,
+        ClaimsPrincipal user)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Unauthorized());
+        }
+
+        var offer = await _dbContext.Offers.FindAsync(id);
+        if (offer is null)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.NotFound("Offer"));
+        }
+
+        var membership = await _dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+            foundMembership.CommunityId == offer.CommunityId
+            && foundMembership.UserId == actorUserId
+            && foundMembership.Status == MembershipStatus.Active);
+        if (membership is null)
+        {
+            return RepositoryResult<Offer>.Failure(
+                ApiErrors.Forbidden("User is not a member of the community."));
+        }
+
+        var canManage = CanManageCommunity(membership)
+            || string.Equals(offer.OffererUserId, actorUserId, StringComparison.Ordinal);
+        if (!canManage)
+        {
+            return RepositoryResult<Offer>.Failure(
+                ApiErrors.Forbidden("User is not allowed to reopen the offer."));
+        }
+
+        if (offer.Status != OfferStatus.Expired)
+        {
+            return RepositoryResult<Offer>.Failure(
+                ApiErrors.Invalid("Only expired offers can be reopened."));
+        }
+
+        if (string.IsNullOrWhiteSpace(offer.RequestId))
+        {
+            return RepositoryResult<Offer>.Failure(
+                ApiErrors.Invalid("Only request-linked offers can be reopened."));
+        }
+
+        var request = await _dbContext.Requests.FindAsync(offer.RequestId);
+        if (request is null)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request does not exist."));
+        }
+        if (request.Status != RequestStatus.Open)
+        {
+            return RepositoryResult<Offer>.Failure(ApiErrors.Conflict("Request is not open."));
+        }
+
+        var now = DateTime.UtcNow;
+        var expiredAt = await ResolveOfferExpiredAtAsync(offer, request);
+        var reopenWindowDays = Math.Max(_lifecycleOptions.OfferReopenWindowDays, 0);
+        if (now > expiredAt.AddDays(reopenWindowDays))
+        {
+            return RepositoryResult<Offer>.Failure(
+                ApiErrors.Invalid("Reopen window has expired for this offer."));
+        }
+
+        offer.Status = OfferStatus.Open;
+        _dbContext.Events.Add(CreateEvent(
+            offer.CommunityId,
+            actorUserId,
+            "Offer",
+            offer.Id,
+            "OfferReopened",
+            now));
+
+        await _dbContext.SaveChangesAsync();
+        var reopenedOffer = await _dbContext.Offers
+            .Include(foundOffer => foundOffer.Community)
+            .Include(foundOffer => foundOffer.OffererUser)
+            .Include(foundOffer => foundOffer.Item)
+            .ThenInclude(item => item!.OwnerUser)
+            .FirstOrDefaultAsync(foundOffer => foundOffer.Id == offer.Id);
+
+        return RepositoryResult<Offer>.Success(reopenedOffer ?? offer);
     }
 
     public async Task<RepositoryResult<bool>> DeleteAsync(
@@ -668,6 +778,28 @@ public sealed class OfferRepository : IOfferRepository
         }
 
         return RepositoryResult<Offer>.Success(offer);
+    }
+
+    private async Task<DateTime> ResolveOfferExpiredAtAsync(Offer offer, Request request)
+    {
+        var expiredAt = await _dbContext.Events
+            .Where(evt =>
+                evt.EntityType == "Offer"
+                && evt.EntityId == offer.Id
+                && evt.Action == "OfferExpired")
+            .Select(evt => (DateTime?)evt.CreatedAt)
+            .MaxAsync();
+        if (expiredAt.HasValue)
+        {
+            return expiredAt.Value;
+        }
+
+        if (request.NeededTo.HasValue)
+        {
+            return request.NeededTo.Value;
+        }
+
+        return offer.CreatedAt;
     }
 
     private static Event CreateEvent(

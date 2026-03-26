@@ -34,6 +34,9 @@ public sealed class CondivaApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("NotificationProcessing__Enabled", "false");
         Environment.SetEnvironmentVariable("NotificationProcessing__PollIntervalSeconds", "1");
         Environment.SetEnvironmentVariable("NotificationProcessing__BatchSize", "50");
+        Environment.SetEnvironmentVariable("RequestLifecycle__Enabled", "false");
+        Environment.SetEnvironmentVariable("RequestLifecycle__PollIntervalSeconds", "1");
+        Environment.SetEnvironmentVariable("RequestLifecycle__BatchSize", "50");
         Environment.SetEnvironmentVariable("CloudFlareR2__AccountId", "test-account");
         Environment.SetEnvironmentVariable("CloudFlareR2__AccessKeyId", "test-access-key");
         Environment.SetEnvironmentVariable("CloudFlareR2__AccessKeySecret", "test-secret-key");

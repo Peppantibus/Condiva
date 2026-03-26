@@ -69,7 +69,7 @@ app.MapLoansEndpoints();
 app.MapEventsEndpoints();
 app.MapNotificationsEndpoints();
 app.MapReputationsEndpoints();
-app.MapStorageEndpoints();
+app.MapStorageEndpoints(app.Environment.IsDevelopment());
 app.MapControllers();
 
 app.Run();

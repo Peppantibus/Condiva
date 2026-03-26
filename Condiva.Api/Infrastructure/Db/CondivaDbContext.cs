@@ -23,6 +23,7 @@ public class CondivaDbContext : DbContext
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Community> Communities => Set<Community>();
+    public DbSet<CommunityBannedTerm> CommunityBannedTerms => Set<CommunityBannedTerm>();
     public DbSet<Membership> Memberships => Set<Membership>();
     public DbSet<Item> Items => Set<Item>();
     public DbSet<Request> Requests => Set<Request>();
@@ -50,6 +51,18 @@ public class CondivaDbContext : DbContext
         modelBuilder.Entity<PasswordResetToken>().HasKey(token => token.TokenHash);
         modelBuilder.Entity<RefreshToken>().HasKey(token => token.TokenHash);
         modelBuilder.Entity<Community>().HasKey(community => community.Id);
+        modelBuilder.Entity<CommunityBannedTerm>().HasKey(term => term.Id);
+        modelBuilder.Entity<CommunityBannedTerm>()
+            .HasIndex(term => new { term.CommunityId, term.NormalizedTerm })
+            .IsUnique();
+        modelBuilder.Entity<CommunityBannedTerm>()
+            .HasIndex(term => new { term.CommunityId, term.IsActive });
+        modelBuilder.Entity<CommunityBannedTerm>()
+            .Property(term => term.Term)
+            .HasMaxLength(128);
+        modelBuilder.Entity<CommunityBannedTerm>()
+            .Property(term => term.NormalizedTerm)
+            .HasMaxLength(128);
         modelBuilder.Entity<Membership>().HasKey(membership => membership.Id);
         modelBuilder.Entity<Item>().HasKey(item => item.Id);
         var requestEntity = modelBuilder.Entity<Request>();

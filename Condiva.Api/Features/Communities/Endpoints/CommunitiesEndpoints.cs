@@ -4,6 +4,7 @@ using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Concurrency;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Features.Communities.Data;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
@@ -30,6 +31,7 @@ public static class CommunitiesEndpoints
     private const int MaxIdLength = 64;
     private const int MaxCategoryLength = 64;
     private const int MaxSearchLength = 128;
+    private const int MaxModerationTermLength = 128;
 
     public static IEndpointRouteBuilder MapCommunitiesEndpoints(
         this IEndpointRouteBuilder endpoints)
@@ -470,6 +472,287 @@ public static class CommunitiesEndpoints
             return Results.Ok(payload);
         })
             .Produces<CommunityRolePermissionsDto>(StatusCodes.Status200OK);
+
+        group.MapGet("/{id}/moderation", async (
+            string id,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var membership = await dbContext.Memberships.AsNoTracking().FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == communityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active);
+            if (membership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+            if (!MembershipRolePolicy.CanModerateContent(membership.Role))
+            {
+                return ApiErrors.Forbidden("User is not allowed to access moderation settings.");
+            }
+
+            var community = await dbContext.Communities
+                .AsNoTracking()
+                .FirstOrDefaultAsync(foundCommunity => foundCommunity.Id == communityId);
+            if (community is null)
+            {
+                return ApiErrors.NotFound("Community");
+            }
+
+            var terms = await dbContext.CommunityBannedTerms
+                .AsNoTracking()
+                .Where(term => term.CommunityId == communityId)
+                .OrderByDescending(term => term.IsActive)
+                .ThenBy(term => term.Term)
+                .Select(term => new CommunityModerationTermDto(
+                    term.Id,
+                    term.Term,
+                    term.IsActive,
+                    term.CreatedByUserId,
+                    term.CreatedAt))
+                .ToListAsync();
+
+            return Results.Ok(new CommunityModerationSettingsDto(
+                community.Id,
+                community.ContentModerationMode.ToString(),
+                terms));
+        })
+            .Produces<CommunityModerationSettingsDto>(StatusCodes.Status200OK);
+
+        group.MapPut("/{id}/moderation", async (
+            string id,
+            UpdateCommunityModerationRequestDto body,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == communityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active);
+            if (membership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+            if (!MembershipRolePolicy.CanManageCommunitySettings(membership.Role))
+            {
+                return ApiErrors.Forbidden("User is not allowed to manage moderation settings.");
+            }
+
+            if (string.IsNullOrWhiteSpace(body.Mode))
+            {
+                return ApiErrors.Required(nameof(body.Mode));
+            }
+            if (!Enum.TryParse<ContentModerationMode>(body.Mode, true, out var mode))
+            {
+                return ApiErrors.Invalid("Invalid moderation mode.");
+            }
+
+            var community = await dbContext.Communities.FirstOrDefaultAsync(foundCommunity => foundCommunity.Id == communityId);
+            if (community is null)
+            {
+                return ApiErrors.NotFound("Community");
+            }
+
+            community.ContentModerationMode = mode;
+            await dbContext.SaveChangesAsync();
+
+            var terms = await dbContext.CommunityBannedTerms
+                .AsNoTracking()
+                .Where(term => term.CommunityId == communityId)
+                .OrderByDescending(term => term.IsActive)
+                .ThenBy(term => term.Term)
+                .Select(term => new CommunityModerationTermDto(
+                    term.Id,
+                    term.Term,
+                    term.IsActive,
+                    term.CreatedByUserId,
+                    term.CreatedAt))
+                .ToListAsync();
+
+            return Results.Ok(new CommunityModerationSettingsDto(
+                community.Id,
+                community.ContentModerationMode.ToString(),
+                terms));
+        })
+            .Produces<CommunityModerationSettingsDto>(StatusCodes.Status200OK);
+
+        group.MapPost("/{id}/moderation/terms", async (
+            string id,
+            CreateCommunityModerationTermRequestDto body,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == communityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active);
+            if (membership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+            if (!MembershipRolePolicy.CanModerateContent(membership.Role))
+            {
+                return ApiErrors.Forbidden("User is not allowed to manage moderation terms.");
+            }
+
+            if (string.IsNullOrWhiteSpace(body.Term))
+            {
+                return ApiErrors.Required(nameof(body.Term));
+            }
+
+            var term = body.Term.Trim();
+            if (term.Length > MaxModerationTermLength)
+            {
+                return ApiErrors.Invalid("Term is too long.");
+            }
+
+            var normalizedTerm = ContentModerationNormalizer.NormalizeForMatching(term);
+            if (string.IsNullOrWhiteSpace(normalizedTerm))
+            {
+                return ApiErrors.Invalid("Invalid term.");
+            }
+
+            var communityExists = await dbContext.Communities.AnyAsync(community => community.Id == communityId);
+            if (!communityExists)
+            {
+                return ApiErrors.NotFound("Community");
+            }
+
+            var existing = await dbContext.CommunityBannedTerms.FirstOrDefaultAsync(foundTerm =>
+                foundTerm.CommunityId == communityId
+                && foundTerm.NormalizedTerm == normalizedTerm);
+            if (existing is not null)
+            {
+                existing.Term = term;
+                existing.IsActive = true;
+                await dbContext.SaveChangesAsync();
+
+                return Results.Ok(new CommunityModerationTermDto(
+                    existing.Id,
+                    existing.Term,
+                    existing.IsActive,
+                    existing.CreatedByUserId,
+                    existing.CreatedAt));
+            }
+
+            var created = new CommunityBannedTerm
+            {
+                Id = Guid.NewGuid().ToString(),
+                CommunityId = communityId,
+                Term = term,
+                NormalizedTerm = normalizedTerm,
+                IsActive = true,
+                CreatedByUserId = actorUserId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            dbContext.CommunityBannedTerms.Add(created);
+            await dbContext.SaveChangesAsync();
+
+            var payload = new CommunityModerationTermDto(
+                created.Id,
+                created.Term,
+                created.IsActive,
+                created.CreatedByUserId,
+                created.CreatedAt);
+            return Results.Created($"/api/communities/{communityId}/moderation/terms/{payload.Id}", payload);
+        })
+            .Produces<CommunityModerationTermDto>(StatusCodes.Status201Created);
+
+        group.MapDelete("/{id}/moderation/terms/{termId}", async (
+            string id,
+            string termId,
+            ClaimsPrincipal user,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var normalizedId = Normalize(id);
+            var idError = ValidateId(normalizedId);
+            if (idError is not null)
+            {
+                return idError;
+            }
+            var communityId = normalizedId!;
+
+            var normalizedTermId = Normalize(termId);
+            if (string.IsNullOrWhiteSpace(normalizedTermId) || normalizedTermId.Length > MaxIdLength)
+            {
+                return ApiErrors.Invalid("Invalid termId.");
+            }
+
+            var membership = await dbContext.Memberships.FirstOrDefaultAsync(foundMembership =>
+                foundMembership.CommunityId == communityId
+                && foundMembership.UserId == actorUserId
+                && foundMembership.Status == MembershipStatus.Active);
+            if (membership is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+            if (!MembershipRolePolicy.CanModerateContent(membership.Role))
+            {
+                return ApiErrors.Forbidden("User is not allowed to manage moderation terms.");
+            }
+
+            var term = await dbContext.CommunityBannedTerms.FirstOrDefaultAsync(foundTerm =>
+                foundTerm.CommunityId == communityId
+                && foundTerm.Id == normalizedTermId);
+            if (term is null)
+            {
+                return ApiErrors.NotFound("CommunityBannedTerm");
+            }
+
+            dbContext.CommunityBannedTerms.Remove(term);
+            await dbContext.SaveChangesAsync();
+            return Results.NoContent();
+        })
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapGet("/{id}/requests/feed", async (
             string id,

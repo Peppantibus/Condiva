@@ -12,6 +12,7 @@ using Condiva.Api.Common.Auth.Services;
 using Condiva.Api.Common.Idempotency;
 using Condiva.Api.Common.Idempotency.Configuration;
 using Condiva.Api.Common.Mapping;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Common.Serialization;
 using Condiva.Api.Common.Security;
 using Condiva.Api.Features.Communities;
@@ -26,6 +27,8 @@ using Condiva.Api.Features.Notifications.Services;
 using Condiva.Api.Features.Offers.Data;
 using Condiva.Api.Features.Reputations.Data;
 using Condiva.Api.Features.Requests.Data;
+using Condiva.Api.Features.Requests.Models;
+using Condiva.Api.Features.Requests.Services;
 using Condiva.Api.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.Json;
@@ -91,6 +94,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.Configure<AuthCookieSettings>(configuration.GetSection("AuthCookies"));
         services.Configure<IdempotencySettings>(configuration.GetSection("Idempotency"));
+        services.Configure<RequestLifecycleOptions>(configuration.GetSection("RequestLifecycle"));
         services.AddScoped<IExternalUserFactory<User>, ExternalUserFactory>();
         services.AddAuthLibrary<User>(configuration);
 
@@ -175,6 +179,7 @@ public static class ServiceCollectionExtensions
         }
         services.AddScoped<IAuthRepository<User>, AuthRepository>();
         services.AddScoped<ITransactionalAuthRepository<User>, AuthRepository>();
+        services.AddScoped<IContentModerationService, ContentModerationService>();
         services.Configure<CloudFlareR2Options>(configuration.GetSection("CloudFlareR2"));
         services.AddSingleton<IR2StorageService, R2StorageService>();
 
@@ -217,6 +222,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<NotificationRules>();
         services.AddSingleton<INotificationsProcessor, NotificationsProcessor>();
         services.AddHostedService<NotificationsBackgroundService>();
+        services.AddHostedService<RequestLifecycleBackgroundService>();
 
         var mapperRegistry = new MapperRegistry();
         MappingRegistration.RegisterAll(mapperRegistry);

@@ -22,6 +22,7 @@ public sealed class Community
     public DateTime EnterCodeExpiresAt { get; set; }
     public string? ImageKey { get; set; }
     public DateTime CreatedAt { get; set; }
+    public ContentModerationMode ContentModerationMode { get; set; } = ContentModerationMode.Off;
 
     public ICollection<Membership> Memberships { get; set; } = new List<Membership>();
     public ICollection<Item> Items { get; set; } = new List<Item>();
@@ -30,4 +31,5 @@ public sealed class Community
     public ICollection<Loan> Loans { get; set; } = new List<Loan>();
     public ICollection<Event> Events { get; set; } = new List<Event>();
     public ICollection<ReputationProfile> Reputations { get; set; } = new List<ReputationProfile>();
+    public ICollection<CommunityBannedTerm> BannedTerms { get; set; } = new List<CommunityBannedTerm>();
 }

@@ -9,4 +9,6 @@ public interface IR2StorageService
     string GeneratePresignedGetUrl(string objectKey, int expiresInSeconds);
 
     Task DeleteObjectAsync(string objectKey, CancellationToken cancellationToken = default);
+
+    Task<int> DeleteAllObjectsAsync(CancellationToken cancellationToken = default);
 }

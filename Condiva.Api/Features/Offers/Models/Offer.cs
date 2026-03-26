@@ -29,5 +29,6 @@ public enum OfferStatus
     Open,
     Accepted,
     Rejected,
-    Withdrawn
+    Withdrawn,
+    Expired
 }

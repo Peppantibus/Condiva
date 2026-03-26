@@ -1,5 +1,6 @@
 ﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Common.Results;
 using Condiva.Api.Features.Communities.Models;
 using Condiva.Api.Features.Items.Models;
@@ -12,10 +13,14 @@ namespace Condiva.Api.Features.Items.Data;
 public sealed class ItemRepository : IItemRepository
 {
     private readonly CondivaDbContext _dbContext;
+    private readonly IContentModerationService _contentModerationService;
 
-    public ItemRepository(CondivaDbContext dbContext)
+    public ItemRepository(
+        CondivaDbContext dbContext,
+        IContentModerationService contentModerationService)
     {
         _dbContext = dbContext;
+        _contentModerationService = contentModerationService;
     }
 
     public async Task<RepositoryResult<PagedResult<Item>>> GetAllAsync(
@@ -210,6 +215,14 @@ public sealed class ItemRepository : IItemRepository
             return RepositoryResult<Item>.Failure(
                 ApiErrors.Forbidden("User is not a member of the community."));
         }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Name, body.Description, body.Category });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Item>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
+        }
         if (string.IsNullOrWhiteSpace(body.Id))
         {
             body.Id = Guid.NewGuid().ToString();
@@ -297,6 +310,14 @@ public sealed class ItemRepository : IItemRepository
             return RepositoryResult<Item>.Failure(
                 ApiErrors.Invalid("OwnerUserId is not a member of the community."));
         }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Name, body.Description, body.Category });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Item>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
+        }
 
         item.CommunityId = body.CommunityId;
         item.OwnerUserId = body.OwnerUserId;
@@ -383,3 +404,4 @@ public sealed class ItemRepository : IItemRepository
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
+

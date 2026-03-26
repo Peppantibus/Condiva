@@ -376,6 +376,54 @@ public static class OffersEndpoints
         })
             .Produces<OfferStatusResponseDto>(StatusCodes.Status200OK);
 
+        group.MapPost("/{id}/reopen", async (
+            string id,
+            ClaimsPrincipal user,
+            IOfferRepository repository,
+            IMapper mapper,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var result = await repository.ReopenAsync(id, user);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var isRequestOwner = false;
+            if (!string.IsNullOrWhiteSpace(result.Data.RequestId))
+            {
+                isRequestOwner = await dbContext.Requests.AnyAsync(request =>
+                    request.Id == result.Data.RequestId
+                    && request.RequesterUserId == actorUserId);
+            }
+
+            var payload = mapper.Map<Offer, OfferDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForOffer(
+                    result.Data!,
+                    actorUserId,
+                    actorRole.Value,
+                    isRequestOwner)
+            };
+            return Results.Ok(payload);
+        })
+            .Produces<OfferDetailsDto>(StatusCodes.Status200OK);
+
         return endpoints;
     }
 }

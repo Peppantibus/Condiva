@@ -437,6 +437,44 @@ public static class RequestsEndpoints
         })
             .Produces(StatusCodes.Status204NoContent);
 
+        group.MapPost("/{id}/reopen", async (
+            string id,
+            ClaimsPrincipal user,
+            IRequestRepository repository,
+            IMapper mapper,
+            HttpContext httpContext,
+            CondivaDbContext dbContext) =>
+        {
+            var actorUserId = CurrentUser.GetUserId(user);
+            if (string.IsNullOrWhiteSpace(actorUserId))
+            {
+                return ApiErrors.Unauthorized();
+            }
+
+            var result = await repository.ReopenAsync(id, user, dbContext);
+            if (!result.IsSuccess)
+            {
+                return result.Error!;
+            }
+
+            var actorRole = await ActorMembershipRoles.GetRoleAsync(
+                dbContext,
+                actorUserId,
+                result.Data!.CommunityId);
+            if (actorRole is null)
+            {
+                return ApiErrors.Forbidden("User is not a member of the community.");
+            }
+
+            var payload = mapper.Map<Request, RequestDetailsDto>(result.Data!) with
+            {
+                AllowedActions = AllowedActionsPolicy.ForRequest(result.Data!, actorUserId, actorRole.Value)
+            };
+            EntityTagHelper.Set(httpContext, result.Data!);
+            return Results.Ok(payload);
+        })
+            .Produces<RequestDetailsDto>(StatusCodes.Status200OK);
+
         group.MapPost("/{id}/image/presign", async (
             string id,
             StoragePresignRequestDto body,

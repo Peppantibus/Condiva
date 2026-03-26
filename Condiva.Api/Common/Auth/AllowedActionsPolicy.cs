@@ -118,6 +118,11 @@ public static class AllowedActionsPolicy
             actions.Add("createOffer");
         }
 
+        if (request.Status == RequestStatus.Expired && canManage)
+        {
+            actions.Add("reopen");
+        }
+
         return actions.ToArray();
     }
 
@@ -146,6 +151,11 @@ public static class AllowedActionsPolicy
         {
             actions.Add("accept");
             actions.Add("reject");
+        }
+
+        if (offer.Status == OfferStatus.Expired && canManage)
+        {
+            actions.Add("reopen");
         }
 
         return actions.ToArray();

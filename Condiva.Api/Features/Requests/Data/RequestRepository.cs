@@ -1,8 +1,11 @@
 ﻿using Condiva.Api.Common.Auth;
 using Condiva.Api.Common.Errors;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Common.Results;
+using Condiva.Api.Features.Events.Models;
 using Condiva.Api.Features.Memberships.Models;
 using Condiva.Api.Features.Requests.Models;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
 using System.Text;
@@ -16,6 +19,16 @@ public sealed class RequestRepository : IRequestRepository
     private const int DefaultCursorPageSize = 20;
     private const int MaxCursorPageSize = 100;
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromHours(8);
+    private readonly RequestLifecycleOptions _lifecycleOptions;
+    private readonly IContentModerationService _contentModerationService;
+
+    public RequestRepository(
+        IOptions<RequestLifecycleOptions> optionsAccessor,
+        IContentModerationService contentModerationService)
+    {
+        _lifecycleOptions = optionsAccessor.Value ?? new RequestLifecycleOptions();
+        _contentModerationService = contentModerationService;
+    }
 
     public async Task<RepositoryResult<CursorPagedResult<Request>>> GetListAsync(
         string communityId,
@@ -294,6 +307,19 @@ public sealed class RequestRepository : IRequestRepository
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Invalid("Status must be Open on create."));
         }
+        var now = DateTime.UtcNow;
+        if (body.NeededTo.HasValue && body.NeededTo.Value <= now)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("NeededTo must be in the future."));
+        }
+        if (body.NeededFrom.HasValue
+            && body.NeededTo.HasValue
+            && body.NeededFrom.Value > body.NeededTo.Value)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("NeededFrom cannot be after NeededTo."));
+        }
         var dayStart = DateTime.UtcNow.Date;
         var dailyCount = await dbContext.Requests.CountAsync(request =>
             request.CommunityId == body.CommunityId
@@ -323,6 +349,14 @@ public sealed class RequestRepository : IRequestRepository
         {
             return RepositoryResult<Request>.Failure(
                 ApiErrors.Forbidden("User is not a member of the community."));
+        }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Title, body.Description });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Request>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
         }
         var normalizedTitle = NormalizeText(body.Title);
         var normalizedDescription = NormalizeText(body.Description);
@@ -408,6 +442,19 @@ public sealed class RequestRepository : IRequestRepository
         {
             return RepositoryResult<Request>.Failure(ApiErrors.Invalid("Status cannot be changed via update."));
         }
+        var now = DateTime.UtcNow;
+        if (body.NeededTo.HasValue && body.NeededTo.Value <= now)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("NeededTo must be in the future."));
+        }
+        if (body.NeededFrom.HasValue
+            && body.NeededTo.HasValue
+            && body.NeededFrom.Value > body.NeededTo.Value)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("NeededFrom cannot be after NeededTo."));
+        }
         var communityExists = await dbContext.Communities
             .AnyAsync(community => community.Id == body.CommunityId);
         if (!communityExists)
@@ -429,6 +476,14 @@ public sealed class RequestRepository : IRequestRepository
             return RepositoryResult<Request>.Failure(
                 ApiErrors.Invalid("RequesterUserId is not a member of the community."));
         }
+        var moderation = await _contentModerationService.EvaluateAsync(
+            body.CommunityId,
+            new[] { body.Title, body.Description });
+        if (moderation.ShouldBlock)
+        {
+            return RepositoryResult<Request>.Failure(ApiErrors.Invalid(
+                "Content contains banned terms for this community."));
+        }
 
         request.CommunityId = body.CommunityId;
         request.RequesterUserId = body.RequesterUserId;
@@ -445,6 +500,82 @@ public sealed class RequestRepository : IRequestRepository
             .FirstOrDefaultAsync(foundRequest => foundRequest.Id == request.Id);
 
         return RepositoryResult<Request>.Success(updatedRequest ?? request);
+    }
+
+    public async Task<RepositoryResult<Request>> ReopenAsync(
+        string id,
+        ClaimsPrincipal user,
+        CondivaDbContext dbContext)
+    {
+        var actorUserId = CurrentUser.GetUserId(user);
+        if (string.IsNullOrWhiteSpace(actorUserId))
+        {
+            return RepositoryResult<Request>.Failure(ApiErrors.Unauthorized());
+        }
+
+        var request = await dbContext.Requests.FindAsync(id);
+        if (request is null)
+        {
+            return RepositoryResult<Request>.Failure(ApiErrors.NotFound("Request"));
+        }
+
+        var membership = await dbContext.Memberships.FirstOrDefaultAsync(membership =>
+            membership.CommunityId == request.CommunityId
+            && membership.UserId == actorUserId
+            && membership.Status == MembershipStatus.Active);
+        if (membership is null)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Forbidden("User is not a member of the community."));
+        }
+
+        if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Forbidden("User is not allowed to reopen the request."));
+        }
+
+        if (request.Status != RequestStatus.Expired)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("Only expired requests can be reopened."));
+        }
+
+        if (!request.NeededTo.HasValue)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("Expired request does not have a neededTo date."));
+        }
+
+        var now = DateTime.UtcNow;
+        var reopenWindowDays = Math.Max(_lifecycleOptions.RequestReopenWindowDays, 0);
+        var reopenDeadline = request.NeededTo.Value.AddDays(reopenWindowDays);
+        if (now > reopenDeadline)
+        {
+            return RepositoryResult<Request>.Failure(
+                ApiErrors.Invalid("Reopen window has expired for this request."));
+        }
+
+        var reopenDurationDays = Math.Max(_lifecycleOptions.RequestReopenDurationDays, 1);
+        request.Status = RequestStatus.Open;
+        request.NeededFrom = now;
+        request.NeededTo = now.AddDays(reopenDurationDays);
+
+        dbContext.Events.Add(CreateEvent(
+            request.CommunityId,
+            actorUserId,
+            "Request",
+            request.Id,
+            "RequestReopened",
+            now));
+
+        await dbContext.SaveChangesAsync();
+        var reopenedRequest = await dbContext.Requests
+            .Include(foundRequest => foundRequest.Community)
+            .Include(foundRequest => foundRequest.RequesterUser)
+            .FirstOrDefaultAsync(foundRequest => foundRequest.Id == request.Id);
+
+        return RepositoryResult<Request>.Success(reopenedRequest ?? request);
     }
 
     public async Task<RepositoryResult<bool>> DeleteAsync(
@@ -471,9 +602,7 @@ public sealed class RequestRepository : IRequestRepository
             return RepositoryResult<bool>.Failure(
                 ApiErrors.Forbidden("User is not a member of the community."));
         }
-        var canManage = CanManageCommunity(membership)
-            || string.Equals(request.RequesterUserId, actorUserId, StringComparison.Ordinal);
-        if (!canManage)
+        if (!CanManageRequest(membership, request.RequesterUserId, actorUserId))
         {
             return RepositoryResult<bool>.Failure(
                 ApiErrors.Forbidden("User is not allowed to delete the request."));
@@ -590,5 +719,36 @@ public sealed class RequestRepository : IRequestRepository
         return MembershipRolePolicy.CanModerateContent(membership.Role);
     }
 
+    private static bool CanManageRequest(
+        Membership membership,
+        string requesterUserId,
+        string actorUserId)
+    {
+        return CanManageCommunity(membership)
+            || string.Equals(requesterUserId, actorUserId, StringComparison.Ordinal);
+    }
+
+    private static Event CreateEvent(
+        string communityId,
+        string actorUserId,
+        string entityType,
+        string entityId,
+        string action,
+        DateTime createdAt)
+    {
+        return new Event
+        {
+            Id = Guid.NewGuid().ToString(),
+            CommunityId = communityId,
+            ActorUserId = actorUserId,
+            EntityType = entityType,
+            EntityId = entityId,
+            Action = action,
+            CreatedAt = createdAt
+        };
+    }
+
     private readonly record struct CursorToken(DateTime CreatedAt, string Id);
 }
+
+

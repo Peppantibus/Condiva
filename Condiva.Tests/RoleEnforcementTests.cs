@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Condiva.Api.Common.Auth.Models;
 using Condiva.Api.Common.Dtos;
+using Condiva.Api.Common.Moderation;
 using Condiva.Api.Common.Idempotency;
 using Condiva.Api.Features.Communities.Dtos;
 using Condiva.Api.Features.Communities.Models;
@@ -129,6 +130,105 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Name = "Community updated by admin",
             Slug = "community-updated-by-admin",
             CreatedByUserId = ownerId
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateCommunityModeration_AsMember_ReturnsForbidden()
+    {
+        var ownerId = "moderation-owner";
+        var memberId = "moderation-member";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.PutAsJsonAsync($"/api/communities/{communityId}/moderation", new
+        {
+            Mode = "Block"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateCommunityModeration_AsModerator_ReturnsForbidden()
+    {
+        var ownerId = "moderation-owner-mod";
+        var moderatorId = "moderation-mod";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.PutAsJsonAsync($"/api/communities/{communityId}/moderation", new
+        {
+            Mode = "Block"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateCommunityModerationTerm_AsOwner_ReturnsCreated()
+    {
+        var ownerId = "moderation-owner-create-term";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+
+        using var client = CreateClientWithToken(ownerId);
+        var response = await client.PostAsJsonAsync($"/api/communities/{communityId}/moderation/terms", new
+        {
+            Term = "badword"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateCommunityModerationTerm_AsMember_ReturnsForbidden()
+    {
+        var ownerId = "moderation-owner-create-term-member";
+        var memberId = "moderation-member-create-term";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId, memberId);
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.PostAsJsonAsync($"/api/communities/{communityId}/moderation/terms", new
+        {
+            Term = "blockedword"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateCommunityModerationTerm_AsModerator_ReturnsCreated()
+    {
+        var ownerId = "moderation-owner-create-term-mod";
+        var moderatorId = "moderation-mod-create-term";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.PostAsJsonAsync($"/api/communities/{communityId}/moderation/terms", new
+        {
+            Term = "blockedword"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpsertCommunityModerationTerm_AsModerator_ReturnsOk()
+    {
+        var ownerId = "moderation-owner-upsert-term-mod";
+        var moderatorId = "moderation-mod-upsert-term";
+        var communityId = await SeedCommunityWithMembersAsync(ownerId);
+        await AddMemberAsync(communityId, moderatorId, MembershipRole.Moderator);
+        await ConfigureModerationAsync(communityId, ContentModerationMode.Block, "blockedword");
+
+        using var client = CreateClientWithToken(moderatorId);
+        var response = await client.PostAsJsonAsync($"/api/communities/{communityId}/moderation/terms", new
+        {
+            Term = "BLOCKEDWORD"
         });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -280,6 +380,39 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task ReopenRequest_AsRequester_WhenWithinWindow_ReturnsOk()
+    {
+        var requesterId = "request-reopen-owner";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        await SetRequestStateAsync(requestId, RequestStatus.Expired, DateTime.UtcNow.AddDays(-1));
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsync($"/api/requests/{requestId}/reopen", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<RequestDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal("Open", payload!.Status);
+        Assert.NotNull(payload.NeededTo);
+        Assert.True(payload.NeededTo > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task ReopenRequest_WhenWindowExpired_ReturnsBadRequest()
+    {
+        var requesterId = "request-reopen-expired";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        await SetRequestStateAsync(requestId, RequestStatus.Expired, DateTime.UtcNow.AddDays(-10));
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsync($"/api/requests/{requestId}/reopen", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateItem_IgnoresOwnerUserIdFromBody()
     {
         var actorUserId = "item-create-actor";
@@ -304,6 +437,30 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
     }
 
     [Fact]
+    public async Task CreateItem_WithBannedTerm_WhenModerationBlock_ReturnsBadRequest()
+    {
+        var actorUserId = "item-moderation-block-user";
+        var communityId = await SeedCommunityWithMembersAsync(actorUserId);
+        await ConfigureModerationAsync(
+            communityId,
+            ContentModerationMode.Block,
+            "vietata");
+
+        using var client = CreateClientWithToken(actorUserId);
+        var response = await client.PostAsJsonAsync("/api/items", new
+        {
+            CommunityId = communityId,
+            OwnerUserId = actorUserId,
+            Name = "cosa vietata",
+            Description = "Desc",
+            Category = "Tools",
+            Status = "Available"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task CreateRequest_IgnoresRequesterUserIdFromBody()
     {
         var actorUserId = "request-create-actor";
@@ -324,6 +481,29 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var payload = await response.Content.ReadFromJsonAsync<RequestDetailsDto>();
         Assert.NotNull(payload);
         Assert.Equal(actorUserId, payload!.RequesterUserId);
+    }
+
+    [Fact]
+    public async Task CreateRequest_WithBannedTerm_WhenModerationBlock_ReturnsBadRequest()
+    {
+        var requesterId = "request-moderation-block-user";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        await ConfigureModerationAsync(
+            communityId,
+            ContentModerationMode.Block,
+            "vietata");
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsJsonAsync("/api/requests", new
+        {
+            CommunityId = communityId,
+            RequesterUserId = requesterId,
+            Title = "Serve cosa vietata subito",
+            Description = "Desc",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -366,6 +546,29 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Title = "Updated request",
             Description = "Updated",
             Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateRequest_WithPastNeededTo_ReturnsBadRequest()
+    {
+        var requesterId = "request-update-past-neededto";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PutAsJsonAsync($"/api/requests/{requestId}", new
+        {
+            Id = requestId,
+            CommunityId = communityId,
+            RequesterUserId = requesterId,
+            Title = "Updated request",
+            Description = "Updated",
+            Status = "Open",
+            NeededFrom = DateTime.UtcNow.AddDays(-3),
+            NeededTo = DateTime.UtcNow.AddDays(-1)
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -482,6 +685,74 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var response = await client.PostAsync($"/api/offers/{offerId}/reject", null);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReopenOffer_AsOfferer_WhenWithinWindow_ReturnsOk()
+    {
+        var requesterId = "offer-reopen-requester";
+        var lenderId = "offer-reopen-offerer";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStateAsync(requestId, RequestStatus.Open, DateTime.UtcNow.AddDays(2));
+        await SetOfferStateAsync(
+            offerId,
+            Condiva.Api.Features.Offers.Models.OfferStatus.Expired,
+            DateTime.UtcNow.AddDays(-1));
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/reopen", null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<OfferDetailsDto>();
+        Assert.NotNull(payload);
+        Assert.Equal("Open", payload!.Status);
+    }
+
+    [Fact]
+    public async Task ReopenOffer_AsUnrelatedMember_ReturnsForbidden()
+    {
+        var requesterId = "offer-reopen-requester-2";
+        var lenderId = "offer-reopen-offerer-2";
+        var memberId = "offer-reopen-member-2";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        await AddMemberAsync(communityId, memberId, MembershipRole.Member);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStateAsync(requestId, RequestStatus.Open, DateTime.UtcNow.AddDays(2));
+        await SetOfferStateAsync(
+            offerId,
+            Condiva.Api.Features.Offers.Models.OfferStatus.Expired,
+            DateTime.UtcNow.AddDays(-1));
+
+        using var client = CreateClientWithToken(memberId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/reopen", null);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReopenOffer_WhenWindowExpired_ReturnsBadRequest()
+    {
+        var requesterId = "offer-reopen-requester-3";
+        var lenderId = "offer-reopen-offerer-3";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        var offerId = await SeedOfferAsync(communityId, lenderId, itemId, requestId);
+        await SetRequestStateAsync(requestId, RequestStatus.Open, DateTime.UtcNow.AddDays(2));
+        await SetOfferStateAsync(
+            offerId,
+            Condiva.Api.Features.Offers.Models.OfferStatus.Expired,
+            DateTime.UtcNow.AddDays(-10));
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsync($"/api/offers/{offerId}/reopen", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -608,6 +879,33 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         var payload = await response.Content.ReadFromJsonAsync<OfferDetailsDto>();
         Assert.NotNull(payload);
         Assert.Equal(actorUserId, payload!.OffererUserId);
+    }
+
+    [Fact]
+    public async Task CreateOffer_WithBannedTerm_WhenModerationBlock_ReturnsBadRequest()
+    {
+        var requesterId = "offer-moderation-requester";
+        var lenderId = "offer-moderation-lender";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId, lenderId);
+        var requestId = await SeedRequestAsync(communityId, requesterId);
+        var itemId = await SeedItemAsync(communityId, lenderId);
+        await ConfigureModerationAsync(
+            communityId,
+            ContentModerationMode.Block,
+            "proibita");
+
+        using var client = CreateClientWithToken(lenderId);
+        var response = await client.PostAsJsonAsync("/api/offers", new
+        {
+            CommunityId = communityId,
+            OffererUserId = lenderId,
+            RequestId = requestId,
+            ItemId = itemId,
+            Message = "offerta proibita",
+            Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -1224,6 +1522,27 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
             Title = "Need item",
             Description = "Desc",
             Status = "Open"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateRequest_WithPastNeededTo_ReturnsBadRequest()
+    {
+        var requesterId = "request-past-neededto";
+        var communityId = await SeedCommunityWithMembersAsync(requesterId);
+
+        using var client = CreateClientWithToken(requesterId);
+        var response = await client.PostAsJsonAsync("/api/requests", new
+        {
+            CommunityId = communityId,
+            RequesterUserId = requesterId,
+            Title = "Need item",
+            Description = "Desc",
+            Status = "Open",
+            NeededFrom = DateTime.UtcNow.AddDays(-3),
+            NeededTo = DateTime.UtcNow.AddDays(-1)
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -1958,6 +2277,56 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         return request.Id;
     }
 
+    private async Task ConfigureModerationAsync(
+        string communityId,
+        ContentModerationMode mode,
+        params string[] terms)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var community = await dbContext.Communities.FindAsync(communityId);
+        if (community is null)
+        {
+            throw new InvalidOperationException("Community not found.");
+        }
+
+        community.ContentModerationMode = mode;
+
+        var existingTerms = await dbContext.CommunityBannedTerms
+            .Where(term => term.CommunityId == communityId)
+            .ToListAsync();
+        if (existingTerms.Count > 0)
+        {
+            dbContext.CommunityBannedTerms.RemoveRange(existingTerms);
+        }
+
+        foreach (var term in terms
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .Select(term => term.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var normalizedTerm = ContentModerationNormalizer.NormalizeForMatching(term);
+            if (string.IsNullOrWhiteSpace(normalizedTerm))
+            {
+                continue;
+            }
+
+            dbContext.CommunityBannedTerms.Add(new CommunityBannedTerm
+            {
+                Id = Guid.NewGuid().ToString(),
+                CommunityId = communityId,
+                Term = term,
+                NormalizedTerm = normalizedTerm,
+                IsActive = true,
+                CreatedByUserId = community.CreatedByUserId,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
     private async Task<string> SeedOfferAsync(
         string communityId,
         string offererUserId,
@@ -1995,6 +2364,65 @@ public sealed class RoleEnforcementTests : IClassFixture<CondivaApiFactory>
         }
 
         request.Status = status;
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task SetRequestStateAsync(
+        string requestId,
+        RequestStatus status,
+        DateTime? neededTo)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var request = await dbContext.Requests.FindAsync(requestId);
+        if (request is null)
+        {
+            throw new InvalidOperationException("Request not found.");
+        }
+
+        request.Status = status;
+        request.NeededTo = neededTo;
+        request.NeededFrom = neededTo.HasValue ? neededTo.Value.AddDays(-1) : null;
+        await dbContext.SaveChangesAsync();
+    }
+
+    private async Task SetOfferStateAsync(
+        string offerId,
+        Condiva.Api.Features.Offers.Models.OfferStatus status,
+        DateTime? changedAt = null)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CondivaDbContext>();
+
+        var offer = await dbContext.Offers.FindAsync(offerId);
+        if (offer is null)
+        {
+            throw new InvalidOperationException("Offer not found.");
+        }
+
+        offer.Status = status;
+        var action = status switch
+        {
+            Condiva.Api.Features.Offers.Models.OfferStatus.Expired => "OfferExpired",
+            Condiva.Api.Features.Offers.Models.OfferStatus.Rejected => "OfferRejected",
+            Condiva.Api.Features.Offers.Models.OfferStatus.Withdrawn => "OfferWithdrawn",
+            _ => null
+        };
+        if (!string.IsNullOrWhiteSpace(action))
+        {
+            dbContext.Events.Add(new Condiva.Api.Features.Events.Models.Event
+            {
+                Id = Guid.NewGuid().ToString(),
+                CommunityId = offer.CommunityId,
+                ActorUserId = offer.OffererUserId,
+                EntityType = "Offer",
+                EntityId = offer.Id,
+                Action = action,
+                CreatedAt = changedAt ?? DateTime.UtcNow
+            });
+        }
+
         await dbContext.SaveChangesAsync();
     }
 

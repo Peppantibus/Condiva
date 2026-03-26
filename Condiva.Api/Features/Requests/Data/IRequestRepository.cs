@@ -33,5 +33,6 @@ public interface IRequestRepository
         CondivaDbContext dbContext);
     Task<RepositoryResult<Request>> CreateAsync(Request body, ClaimsPrincipal user, CondivaDbContext dbContext);
     Task<RepositoryResult<Request>> UpdateAsync(string id, Request body, ClaimsPrincipal user, CondivaDbContext dbContext);
+    Task<RepositoryResult<Request>> ReopenAsync(string id, ClaimsPrincipal user, CondivaDbContext dbContext);
     Task<RepositoryResult<bool>> DeleteAsync(string id, ClaimsPrincipal user, CondivaDbContext dbContext);
 }

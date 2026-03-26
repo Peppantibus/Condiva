@@ -29,5 +29,6 @@ public enum RequestStatus
     Open,
     Accepted,
     Closed,
-    Canceled
+    Canceled,
+    Expired
 }

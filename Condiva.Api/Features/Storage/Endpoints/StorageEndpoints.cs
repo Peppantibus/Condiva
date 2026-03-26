@@ -11,6 +11,7 @@ public static class StorageEndpoints
 {
     private const int DownloadPresignTtlSeconds = 300;
     private const int MaxResolveBatchSize = 100;
+    private const string PurgeAllConfirmationToken = "PURGE_R2_BUCKET";
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
@@ -20,7 +21,9 @@ public static class StorageEndpoints
     };
     private static readonly Regex InvalidFileNameCharsRegex = new(@"[^a-zA-Z0-9._-]+", RegexOptions.Compiled);
 
-    public static IEndpointRouteBuilder MapStorageEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapStorageEndpoints(
+        this IEndpointRouteBuilder endpoints,
+        bool includeDevEndpoints = false)
     {
         var group = endpoints.MapGroup("/api/storage");
         group.RequireAuthorization();
@@ -128,6 +131,30 @@ public static class StorageEndpoints
         })
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status400BadRequest);
+
+        if (includeDevEndpoints)
+        {
+            group.MapPost("/dev/purge-all", async (
+                StoragePurgeAllRequestDto body,
+                IR2StorageService storageService,
+                CancellationToken cancellationToken) =>
+            {
+                if (!string.Equals(body.Confirmation?.Trim(), PurgeAllConfirmationToken, StringComparison.Ordinal))
+                {
+                    return ApiErrors.Validation(
+                        "Invalid confirmation token.",
+                        new Dictionary<string, string>
+                        {
+                            [nameof(body.Confirmation)] = $"Use '{PurgeAllConfirmationToken}' to confirm purge."
+                        });
+                }
+
+                var deletedObjects = await storageService.DeleteAllObjectsAsync(cancellationToken);
+                return Results.Ok(new StoragePurgeAllResponseDto(deletedObjects, DateTime.UtcNow));
+            })
+                .Produces<StoragePurgeAllResponseDto>(StatusCodes.Status200OK)
+                .Produces(StatusCodes.Status400BadRequest);
+        }
 
         return endpoints;
     }

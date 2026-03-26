@@ -27,4 +27,5 @@ public interface IOfferRepository
         ClaimsPrincipal user);
     Task<RepositoryResult<Offer>> RejectAsync(string id, ClaimsPrincipal user);
     Task<RepositoryResult<Offer>> WithdrawAsync(string id, ClaimsPrincipal user);
+    Task<RepositoryResult<Offer>> ReopenAsync(string id, ClaimsPrincipal user);
 }
